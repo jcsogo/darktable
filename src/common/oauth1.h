@@ -19,7 +19,8 @@
 #include <glib.h>
 
 /** oauth context */
-typedef struct DtOAUthCtx
+struct dt_oauth_ctx_priv_t;
+typedef struct dt_oauth_ctx_t
 {
   char *endpoint;
   char *alternative_endpoint;
@@ -31,9 +32,9 @@ typedef struct DtOAUthCtx
   char *token_secret;
 
   gboolean use_authorize_header;
-} DtOAUthCtx;
 
-
+  struct dt_oauth_ctx_priv_t *priv;
+} dt_oauth_ctx_t;
 /**
  * Error codes returned by oauth functions
  *
@@ -42,7 +43,7 @@ typedef struct DtOAUthCtx
  * codes from 500 to 999 are oauth specific errors
  * codes above might be used by user in callback functions
  */
-typedef enum DtOauthErrors
+typedef enum dt_oauth_errors_t
 {
   ///everything went fine
   DT_OAUTH_OK = 0,
@@ -54,7 +55,7 @@ typedef enum DtOauthErrors
   DT_OAUTH_PARSE_ERROR_TOKEN_MISSING,
   /// error while parsing oauth response, the token secret field is unavailable
   DT_OAUTH_PARSE_ERROR_SECRET_MISSING
-} DtOauthErrors;
+} dt_oauth_errors_t;
 
 /**
  * context option
@@ -66,10 +67,10 @@ typedef enum DtOauthErrors
  *     endpoint than the one specified on init. requests will still be signed with
  *     the original endpoint
  */
-typedef enum DtOauthOpt{
+typedef enum dt_oauth_opt_t{
   DT_OAUTH_USE_AUTHORIZE_HEADER,
   DT_OAUTH_USE_ALTERNATIVE_ENDPOINT
-} DtOauthOpt;
+} dt_oauth_opt_t;
 
 
 /**
@@ -77,10 +78,11 @@ typedef enum DtOauthOpt{
  *
  * @param ctx oauth context
  * @param reply null terminated buffer containing the reply from the server
+ * @param httpcode response code from the server
  * @param data user data passed to callback
  * @return *MUST* returns 0 on success, error code on failure. user error codes SHOULD be above 1000
  */
-typedef int (*DtOAUthReplyCallback) (DtOAUthCtx *ctx, const char *reply, gpointer data);
+typedef int (*dt_oauth_reply_callback_t) (dt_oauth_ctx_t *ctx, int httpcode, const char *reply, gpointer data);
 
 /**
  * type of callback function called by dt_oauth_request_token and dt_oauth_access_token
@@ -90,7 +92,7 @@ typedef int (*DtOAUthReplyCallback) (DtOAUthCtx *ctx, const char *reply, gpointe
  * @param data user data passed to callback
  * @return *MUST* returns 0 on success, error code on failure. user error codes SHOULD be above 1000
  */
-typedef int (*DtOAUthParamCallback) (DtOAUthCtx *ctx, GHashTable *params, gpointer data);
+typedef int (*dt_oauth_param_callback) (dt_oauth_ctx_t *ctx, GHashTable *params, gpointer data);
 
 
 /**
@@ -101,21 +103,21 @@ typedef int (*DtOAUthParamCallback) (DtOAUthCtx *ctx, GHashTable *params, gpoint
  * @param consumer_key the application consumer secret
  * @return a newly allocated context
  */
-DtOAUthCtx *dt_oauth_ctx_init(const char *endpoint, const char *consumer_key, const char *consumer_secret);
+dt_oauth_ctx_t *dt_oauth_ctx_init(const char *endpoint, const char *consumer_key, const char *consumer_secret);
 
 /**
  * release given oauth context
  */
-void dt_oauth_ctx_destroy(DtOAUthCtx *ctx);
+void dt_oauth_ctx_destroy(dt_oauth_ctx_t *ctx);
 
 /**
- * specify an option @see DtOauthOpt for available options
+ * specify an option @see dt_oauth_opt_t for available options
  * @param ctx
  * @param opt
  * @param value
  * @return 0 on success
  */
-int dt_oauth_set_opt(DtOAUthCtx *ctx, DtOauthOpt opt, const void *value);
+int dt_oauth_set_opt(dt_oauth_ctx_t *ctx, dt_oauth_opt_t opt, const void *value);
 
 /**
  *
@@ -134,7 +136,7 @@ int dt_oauth_set_opt(DtOAUthCtx *ctx, DtOauthOpt opt, const void *value);
  * @param callbackdata data to be passed to the callback function
  * @return 0 on success, error code otherwise
  */
-int dt_oauth_request_token(DtOAUthCtx *ctx, const char *method, const char *service, const char **extraparam, DtOAUthParamCallback callback, gpointer callbackdata);
+int dt_oauth_request_token(dt_oauth_ctx_t *ctx, const char *method, const char *service, const char **extraparam, dt_oauth_param_callback callback, gpointer callbackdata);
 
 
 /**
@@ -154,7 +156,7 @@ int dt_oauth_request_token(DtOAUthCtx *ctx, const char *method, const char *serv
  * @param callbackdata data to be
  * @return 0 on success, error code else
  */
-int dt_oauth_access_token(DtOAUthCtx *ctx, const char *method, const char *service, const char **extraparam, DtOAUthParamCallback callback, gpointer callbackdata);
+int dt_oauth_access_token(dt_oauth_ctx_t *ctx, const char *method, const char *service, const char **extraparam, dt_oauth_param_callback callback, gpointer callbackdata);
 
 /**
  * set or overwrite current user token
@@ -163,7 +165,7 @@ int dt_oauth_access_token(DtOAUthCtx *ctx, const char *method, const char *servi
  * @param token_key user token secret
  * @return 0 on success
  */
-int dt_oauth_set_token(DtOAUthCtx *ctx, const char *token_key, const char *token_secret);
+int dt_oauth_set_token(dt_oauth_ctx_t *ctx, const char *token_key, const char *token_secret);
 
 /**
  * perfom a GET request signed with oauth credentials
@@ -181,7 +183,7 @@ int dt_oauth_set_token(DtOAUthCtx *ctx, const char *token_key, const char *token
  * @param callbackdata data to be passed to the callback function
  * @return 0 on success, error code otherwise
  */
-int dt_oauth_get(DtOAUthCtx *ctx, const char *service, const char **extraparam, DtOAUthReplyCallback callback, gpointer callbackdata);
+int dt_oauth_get(dt_oauth_ctx_t *ctx, const char *service, const char **extraparam, dt_oauth_reply_callback_t callback, gpointer callbackdata);
 
 /**
  * perfom a POST request signed with oauth credentials
@@ -199,7 +201,7 @@ int dt_oauth_get(DtOAUthCtx *ctx, const char *service, const char **extraparam, 
  * @param callbackdata data to be passed to the callback function
  * @return 0 on success, error code otherwise
  */
-int dt_oauth_post(DtOAUthCtx *ctx, const char *service, const char **extraparam, DtOAUthReplyCallback callback, gpointer callbackdata);
+int dt_oauth_post(dt_oauth_ctx_t *ctx, const char *service, const char **extraparam, dt_oauth_reply_callback_t callback, gpointer callbackdata);
 
 
 /**
@@ -229,4 +231,8 @@ int dt_oauth_post(DtOAUthCtx *ctx, const char *service, const char **extraparam,
  * @param callbackdata data to be passed to the callback function
  * @return 0 on success, error code otherwise
  */
-int dt_oauth_post_files(DtOAUthCtx *ctx, const char *service, const char **files, const char **extraparam, DtOAUthReplyCallback callback, gpointer callbackdata);
+int dt_oauth_post_files(dt_oauth_ctx_t *ctx, const char *service, const char **files, const char **extraparam, dt_oauth_reply_callback_t callback, gpointer callbackdata);
+
+// modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
+// vim: shiftwidth=2 expandtab tabstop=2 cindent
+// kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-space on;
