@@ -39,9 +39,6 @@ DT_MODULE(1)
 
 #define PARAM_STRING_SIZE 256 // FIXME: is this enough !?
 
-/* Folders code starts here
- TODO: Clean it */
-
 //DT_MODULE(1)
 
 typedef struct dt_lib_collect_rule_t
@@ -800,7 +797,6 @@ match_string (GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter, gpointe
 
   status = regexec (&re, str, (size_t) 0, NULL, 0);
   regfree (&re);
-  //printf("Model: %s -- Entry: %s -- Status: %s\n", str, string, status == REG_NOMATCH?"No Match":"MATCH!"); 
 
   if (status == REG_NOMATCH)
     visible = FALSE;
@@ -823,14 +819,12 @@ reveal_func (GtkTreeModel *model, GtkTreePath *path, GtkTreeIter *iter, gpointer
   gchar *str;
 
   gtk_tree_model_get (model, iter, DT_LIB_COLLECT_COL_PATH, &str, DT_LIB_COLLECT_COL_VISIBLE, &state, -1);
-  //printf("Model: %s -- State: %s\n", str, state?"TRUE":"FALSE"); 
   if (!state)
     return FALSE;
 
   while (gtk_tree_model_iter_parent (model, &parent, &child))
   {
     gtk_tree_model_get (model, &parent, DT_LIB_COLLECT_COL_PATH, &str, DT_LIB_COLLECT_COL_VISIBLE, &state, -1);
-    //printf("Changing: Model: %s -- State from: %s to TRUE\n", str, state?"TRUE":"FALSE"); 
     gtk_tree_store_set (GTK_TREE_STORE (model), &parent, DT_LIB_COLLECT_COL_VISIBLE, TRUE, -1);
     child = parent;
   }
@@ -1031,19 +1025,10 @@ folder_stuff (dt_lib_collect_rule_t *dr)
   {
     if (dr->typing == FALSE)
     {
-      printf("Refiltering: NOT TYPING\n");
-/*      for (int i=0; i<d->trees->len; i++)
-      {
-        tree = GTK_TREE_VIEW(g_ptr_array_index (d->trees, i));
-        GtkTreeModelFilter *modelfilter = GTK_TREE_MODEL_FILTER(gtk_tree_view_get_model (tree));
-        GtkTreeModel *model = gtk_tree_model_filter_get_model (modelfilter);
-        refilter (model, dr);
-      }
-*/
+      // Do nothing here
     }
     else
     {
-      printf("Refiltering: TYPING\n");
       for (int i=0; i<d->trees->len; i++)
       {
         tree = GTK_TREE_VIEW(g_ptr_array_index (d->trees, i));
@@ -1365,9 +1350,7 @@ _lib_collect_gui_update (dt_lib_module_t *self)
     gchar *text = dt_conf_get_string(confname);
     if(text)
     {
-      int z;
-      z = g_signal_handlers_block_matched (d->rule[i].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
-      printf ("_lib_collect_gui_update: %d signals blocked\n", z);
+      g_signal_handlers_block_matched (d->rule[i].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
       gtk_entry_set_text(GTK_ENTRY(d->rule[i].text), text);
       g_signal_handlers_unblock_matched (d->rule[i].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
       g_free(text);
@@ -1417,9 +1400,7 @@ static void
 combo_changed (GtkComboBox *combo, dt_lib_collect_rule_t *d)
 {
   if(darktable.gui->reset) return;
-  int z;
-  z = g_signal_handlers_block_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
-  printf ("combo_changed: %d signals blocked\n", z);
+  g_signal_handlers_block_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
   gtk_entry_set_text(GTK_ENTRY(d->text), "");
   g_signal_handlers_unblock_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
   dt_lib_collect_t *c = get_collect(d);
@@ -1448,9 +1429,7 @@ row_activated (GtkTreeView *view, GtkTreePath *path, GtkTreeViewColumn *col, dt_
   else
     gtk_tree_model_get (model, &iter, DT_LIB_COLLECT_COL_TEXT, &text, -1);
   
-  int z;
-  z = g_signal_handlers_block_matched (d->rule[active].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
-  printf ("row_activated: %d signals blocked\n", z);
+  g_signal_handlers_block_matched (d->rule[active].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
   gtk_entry_set_text(GTK_ENTRY(d->rule[active].text), text);
   g_signal_handlers_unblock_matched (d->rule[active].text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
   g_free(text);
@@ -1496,9 +1475,7 @@ entry_activated (GtkWidget *entry, dt_lib_collect_rule_t *d)
       else
         gtk_tree_model_get (model, &iter, DT_LIB_COLLECT_COL_TEXT, &text, -1);
 
-      int z;
-      z = g_signal_handlers_block_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
-      printf ("entry activated: %d signals blocked\n", z);
+      g_signal_handlers_block_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
       gtk_entry_set_text(GTK_ENTRY(d->text), text);
       g_signal_handlers_unblock_matched (d->text, G_SIGNAL_MATCH_FUNC, 0, 0 , NULL, entry_changed, NULL);
       g_free(text);
@@ -1512,7 +1489,6 @@ entry_activated (GtkWidget *entry, dt_lib_collect_rule_t *d)
 static void
 entry_changed (GtkWidget *entry, gchar *new_text, gint new_length, gpointer *position, dt_lib_collect_rule_t *d)
 {
-  printf ("entry_changed callback!\n");
   d->typing = TRUE;
 }
 
@@ -1698,7 +1674,6 @@ menuitem_clear (GtkMenuItem *menuitem, dt_lib_collect_rule_t *d)
     dt_conf_set_string("plugins/lighttable/collect/string0", "");
     d->typing = FALSE;
     gtk_combo_box_set_active (d->combo, 0);
-    printf ("Clearing text in menuitem_clear\n");
     gtk_entry_set_text (GTK_ENTRY(d->text), "");
   }
   // move up all still active rules by one.
