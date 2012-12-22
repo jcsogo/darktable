@@ -667,7 +667,7 @@ _folder_tree ()
   /* intialize the tree store */
   sqlite3_stmt *stmt;
 //  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select folder,external_drive from film_rolls order by folder desc", -1, &stmt, NULL);
-  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select folder from film_rolls order by folder desc", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select folder,id from film_rolls order by folder desc", -1, &stmt, NULL);
   GtkTreeStore *store = gtk_tree_store_new(DT_LIB_COLLECT_NUM_COLS, G_TYPE_STRING, G_TYPE_UINT, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_INT, G_TYPE_BOOLEAN);
 
   // initialize the model with the paths
@@ -679,6 +679,7 @@ _folder_tree ()
     GtkTreeIter current, iter;
     GtkTreePath *root;
     char **pch = g_strsplit((char *)sqlite3_column_text(stmt, 0), "/", -1);
+    int id = sqlite3_column_int(stmt, 1);
 #if 0
     char *external = g_strdup((char *)sqlite3_column_text(stmt, 1));
 
@@ -755,6 +756,7 @@ _folder_tree ()
         int count = _count_images(pth2);
         gtk_tree_store_insert(store, &iter, level>0?&current:NULL,0);
         gtk_tree_store_set(store, &iter, DT_LIB_COLLECT_COL_TEXT, pch[level], 
+                                         DT_LIB_COLLECT_COL_ID, id,
                                          DT_LIB_COLLECT_COL_PATH, pth2, 
                                          DT_LIB_COLLECT_COL_COUNT, count, 
                                          DT_LIB_COLLECT_COL_VISIBLE, TRUE, -1);
@@ -1264,9 +1266,7 @@ create_folders_gui (dt_lib_collect_rule_t *dr)
     GtkTreeModel *model2;
     
     GtkTreePath *root = gtk_tree_path_new_first();
-    if(!gtk_tree_model_get_iter (GTK_TREE_MODEL(treemodel), &iter, root))
-      // something went wrong, get out.
-      return;
+    gtk_tree_model_get_iter (GTK_TREE_MODEL(treemodel), &iter, root);
     int children = 1; // To be deleted if the following code in enabled
 #if 0
     int children = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(treemodel), NULL);
@@ -1666,8 +1666,27 @@ filmrolls_updated(gpointer instance, gpointer self)
   _lib_collect_gui_update(self); 
 }
 
+static gboolean
+remove_film_id (GtkTreeModel *model,
+                GtkTreePath *path,
+                GtkTreeIter *iter,
+                gpointer data)
+{
+  gint film_id = GPOINTER_TO_INT(data);
+  int id;
+  gtk_tree_model_get (model, iter, DT_LIB_COLLECT_COL_ID, &id, -1);
+  
+  if (film_id == id)
+  {
+    gtk_list_store_remove(GTK_LIST_STORE(model), iter);
+    return TRUE;
+  }
+  else
+    return FALSE;
+}
+
 static void
-filmrolls_imported(gpointer instance, gpointer self)
+filmrolls_imported(gpointer instance, gint id, gpointer self)
 {
   dt_lib_module_t *dm = (dt_lib_module_t *)self;
 
@@ -1679,7 +1698,19 @@ filmrolls_imported(gpointer instance, gpointer self)
   d->treemodel = GTK_TREE_MODEL(_folder_tree());
   d->tree_new = TRUE;
   d->rule[active].typing = FALSE;
- 
+
+  /*gtk_tree_model_foreach(GTK_TREE_MODEL(store), 
+                         (GtkTreeModelForeachFunc) search_film_id,
+                         GINT_TO_POINTER(id));
+  */
+  /* TODO: Pass film_id en los datos callback the la señal
+           Implementar search_film_id 
+            Tiene que comparar el film_id
+            Si coincide, borrar
+            Devolver TRUE
+           Añadir el film_id a la lista de columnas
+  */
+
   // reset active rules
   dt_conf_set_int("plugins/lighttable/collect/num_rules", 1);
   dt_conf_set_int("plugins/lighttable/collect/item0", DT_COLLECTION_PROP_FILMROLL); 
@@ -1687,7 +1718,7 @@ filmrolls_imported(gpointer instance, gpointer self)
 }
 
 static void
-filmrolls_removed(gpointer instance, gpointer self)
+filmrolls_removed(gpointer instance, gint id, gpointer self)
 {
   dt_lib_module_t *dm = (dt_lib_module_t *)self;
   
@@ -1696,10 +1727,13 @@ filmrolls_removed(gpointer instance, gpointer self)
   d->active_rule = active;
 
   // update tree
-  d->treemodel = GTK_TREE_MODEL(_folder_tree());
-  d->tree_new = TRUE;
+  //d->treemodel = GTK_TREE_MODEL(_folder_tree());
+  //d->tree_new = TRUE;
   d->rule[active].typing = FALSE;
   
+  gtk_tree_model_foreach(GTK_TREE_MODEL(d->treemodel), 
+                         (GtkTreeModelForeachFunc) remove_film_id,
+                         GINT_TO_POINTER(id));
   // reset active rules
   dt_conf_set_int("plugins/lighttable/collect/num_rules", 1);
   dt_conf_set_int("plugins/lighttable/collect/item0", DT_COLLECTION_PROP_FILMROLL);
