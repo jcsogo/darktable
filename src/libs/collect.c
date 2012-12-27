@@ -1678,7 +1678,7 @@ remove_film_id (GtkTreeModel *model,
 
   if (film_id == id)
   {
-    gtk_list_store_remove(GTK_LIST_STORE(model), iter);
+    gtk_tree_store_remove(GTK_TREE_STORE(model), iter);
     return TRUE;
   }
   else
