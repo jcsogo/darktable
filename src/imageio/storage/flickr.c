@@ -61,7 +61,7 @@ typedef struct dt_storage_flickr_gui_data_t
 {
 
   GtkLabel *label1,*label2,*label3, *label4,*label5,*label6,*label7,*labelPerms;    // username, password, albums, status, albumtitle, albumsummary, albumrights
-  GtkEntry *entry1,*entry2,*entry3,*entry4;                             // username, password, albumtitle,albumsummary
+  GtkEntry *entry2,*entry3,*entry4;                             // username, password, albumtitle,albumsummary
   GtkComboBox *comboBox1;                                               // album box
   GtkCheckButton *checkButton2;                                         // export tags
   GtkDarktableButton *dtbutton1;                                        // refresh albums
@@ -69,7 +69,7 @@ typedef struct dt_storage_flickr_gui_data_t
   GtkBox *hbox1;                                                        // Create album options...
   GtkComboBox *permsComboBox;                                           // Permissions for flickr
 
-  char *user_token;
+//  char *user_token;
 
   /* List of albums */
   flickcurl_photoset **albums;
@@ -112,7 +112,8 @@ void static _flickr_api_free( _flickr_api_context_t *ctx )
 
 static void _flickr_api_error_handler(void *data, const char *message)
 {
-  dt_control_log(_("flickr authentication: %s"), message);
+  dt_control_log(_("flickr: %s"), message);
+  printf("flickr: %s\n", message);
   if (data)
   {
     _flickr_api_context_t *ctx = (_flickr_api_context_t *)data;
@@ -122,137 +123,167 @@ static void _flickr_api_error_handler(void *data, const char *message)
 
 _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_data_t *ui)
 {
-  char *perms = NULL, *frob;
-  gchar *token;
-  char *flickr_user_token = NULL;
-  gint result;
+  //char *perms = NULL, *frob;
+  //gchar *token;
+  //gchar *username, *user_nsid, *user_token, *access_token, *access_token_secret;
+  gchar *access_token, *access_token_secret;
+  gint rc;
   _flickr_api_context_t *ctx = (_flickr_api_context_t *)g_malloc(sizeof(_flickr_api_context_t));
   memset(ctx,0,sizeof(_flickr_api_context_t));
 
   flickcurl_init ();
   ctx->fc = flickcurl_new ();
-  flickcurl_set_api_key (ctx->fc, API_KEY);
-  flickcurl_set_shared_secret (ctx->fc, SHARED_SECRET);
+  
+  flickcurl_set_oauth_client_key (ctx->fc, API_KEY);
+  flickcurl_set_oauth_client_secret (ctx->fc, SHARED_SECRET);
   flickcurl_set_error_handler(ctx->fc, _flickr_api_error_handler, ctx);
 
-  if (!ui->user_token)
-  {
-    // Retrieve stored auth_key
-    // TODO: We should be able to store token for different users
-    GHashTable* table = dt_pwstorage_get("flickr");
-    gchar * _username = g_strdup( g_hash_table_lookup(table, "username"));
-    gchar *_user_token = g_strdup( g_hash_table_lookup(table, "token"));
-    g_hash_table_destroy(table);
+  // Retrieve stored auth_key
+  GHashTable* table = dt_pwstorage_get("flickr");
+//  username = g_strdup (g_hash_table_lookup(table, "username"));
+//  user_nsid = g_strdup (g_hash_table_lookup(table, "user_nsid"));
+//  user_token = g_strdup (g_hash_table_lookup(table, "token"));
+  access_token = g_strdup (g_hash_table_lookup(table, "access_token"));
+  access_token_secret = g_strdup (g_hash_table_lookup(table, "access_token_secret"));
+  g_hash_table_destroy(table);
 
-    if (_username)
+#if 0
+//  if (username)
+  if (0)
+  {
+    /* Upgrade to the new oAuth system */
+
+    flickcurl_set_api_key (ctx->fc, API_KEY);
+    flickcurl_set_shared_secret (ctx->fc, SHARED_SECRET);
+
+    //perms = flickcurl_auth_checkToken(ctx->fc, username);
+    flickcurl_auth_checkToken(ctx->fc, username);
+    flickcurl_set_auth_token(ctx->fc, user_token);
+
+    rc = flickcurl_auth_oauth_getAccessToken (ctx->fc);
+
+    if (!rc)
     {
-      if (!strcmp(_username,gtk_entry_get_text(ui->entry1)))
-      {
-        flickr_user_token = g_strdup(_user_token);
-        perms = flickcurl_auth_checkToken(ctx->fc, flickr_user_token);
-      }
-      g_free (_username);
+      access_token = g_strdup(flickcurl_get_oauth_token(ctx->fc));
+      access_token_secret = g_strdup(flickcurl_get_oauth_token_secret(ctx->fc));
+      
+      GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
+
+      //g_hash_table_insert(table, "username", username);
+      g_hash_table_insert(table, "username", "");
+      g_hash_table_insert(table, "token", "");
+      g_hash_table_insert(table, "oauth_token", access_token);
+      g_hash_table_insert(table, "oauth_token_secret", access_token_secret);
+
+      dt_pwstorage_set("flickr", table);
+    } 
+    g_free (username);
+  }
+#endif
+
+  if (!access_token && !access_token_secret)
+  {
+    GError *error = NULL;
+    const char *verifier = NULL;
+    rc = flickcurl_oauth_create_request_token(ctx->fc, NULL);
+    const char *request_token = g_strdup(flickcurl_get_oauth_request_token (ctx->fc));
+    const char *request_token_secret = g_strdup(flickcurl_get_oauth_request_token_secret(ctx->fc));
+
+    if (rc)
+      return NULL;
+
+    gchar *uri = flickcurl_oauth_get_authorize_uri(ctx->fc);
+    
+    // Hold here to let the user interact
+    GtkWidget *window = dt_ui_main_window(darktable.gui->ui);
+    GtkWidget *flickr_auth_dialog = gtk_dialog_new_with_buttons (_("flickr authentication"),
+                                    GTK_WINDOW (window),
+                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                    GTK_STOCK_OK,
+                                    GTK_RESPONSE_ACCEPT,
+                                    GTK_STOCK_CANCEL,
+                                    GTK_RESPONSE_REJECT,
+                                    NULL);
+    gtk_dialog_set_has_separator(GTK_DIALOG(flickr_auth_dialog), FALSE);
+    GtkWidget *content_area = gtk_dialog_get_content_area(GTK_DIALOG(flickr_auth_dialog));
+                                    
+    GtkWidget *label = gtk_label_new(_("go to the browser and introduce the generated code"));
+    GtkWidget *entry = gtk_entry_new();
+
+    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(label), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(entry), TRUE, TRUE, 0);
+
+    gtk_dialog_set_default_response(GTK_DIALOG(flickr_auth_dialog), GTK_RESPONSE_ACCEPT);
+
+    gtk_widget_show_all(GTK_WIDGET(flickr_auth_dialog));
+
+    printf ("URI: %s - request token: %s\n", uri, request_token);
+    
+    gtk_show_uri (gdk_screen_get_default(), uri, gtk_get_current_event_time (), &error);
+    
+    if (gtk_dialog_run (GTK_DIALOG (flickr_auth_dialog)) == GTK_RESPONSE_ACCEPT)
+    {
+        verifier = g_strdup(gtk_entry_get_text(GTK_ENTRY(entry)));
     }
-    if (_user_token)
-      g_free (_user_token);
+
+    gtk_widget_destroy(flickr_auth_dialog);
+    
+    if (strcmp(verifier, ""))
+    {
+     // flickcurl_set_oauth_request_token(ctx->fc, request_token);
+     // flickcurl_set_oauth_request_token_secret(ctx->fc, request_token_secret);
+
+      printf("Requesting auth token with: request token %s, secret %s, verifier %s\n", request_token, request_token_secret, verifier);
+
+      rc = flickcurl_oauth_create_access_token(ctx->fc, verifier);
+
+      if (!rc)
+      {
+        access_token = g_strdup(flickcurl_get_oauth_token(ctx->fc));
+        access_token_secret = g_strdup(flickcurl_get_oauth_token_secret(ctx->fc));
+//        username = g_strdup(flickcurl_get_oauth_username(ctx->fc));
+//        user_nsid = g_strdup(flickcurl_get_oauth_user_nsid(ctx->fc));
+      }
+      else
+      {
+        _flickr_api_free(ctx);
+        return NULL;
+      }
+
+      /* Add creds to pwstorage */
+      GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
+
+      g_hash_table_insert(table, "oauth_token", access_token);
+      g_hash_table_insert(table, "oauth_token_secret", access_token_secret);
+      //g_hash_table_insert(table, "username", username);
+      //g_hash_table_insert(table, "user_nsid", user_nsid);
+
+      if( !dt_pwstorage_set("flickr", table) )
+      {
+        dt_print(DT_DEBUG_PWSTORAGE,"[flickr] cannot store user/token\n");
+      }
+
+      g_free(access_token);
+      g_free(access_token_secret);
+      //g_free(username);
+      //g_free(user_nsid);
+      g_hash_table_destroy(table);
+
+      return ctx;
+    }
+    else
+    {
+      _flickr_api_free(ctx);
+      return NULL;
+    }
   }
   else
   {
-    flickr_user_token = ui->user_token;
-    perms = flickcurl_auth_checkToken(ctx->fc, ui->user_token);
-  }
+    flickcurl_set_oauth_token(ctx->fc, access_token);
+    flickcurl_set_oauth_token_secret(ctx->fc, access_token_secret);
 
-
-  if (perms)
-  {
-    ui->user_token = flickr_user_token;
-    flickcurl_set_auth_token(ctx->fc, flickr_user_token);
     return ctx;
-
   }
-  else if (!ctx->error_occured)
-  {
-    frob = flickcurl_auth_getFrob(ctx->fc);
-    GError *error = NULL;
-    char *sign = g_strdup_printf ("%sapi_key%sfrob%spermswrite", SHARED_SECRET, API_KEY, frob);
-    char *sign_md5 = g_compute_checksum_for_string (G_CHECKSUM_MD5, sign, strlen (sign));
-    gchar auth_url[250];
-    sprintf(auth_url,"http://flickr.com/services/auth/?api_key=%s&perms=write&frob=%s&api_sig=%s", API_KEY, frob, sign_md5);
-
-    gtk_show_uri (gdk_screen_get_default(), auth_url, gtk_get_current_event_time (), &error);
-
-    g_free(sign);
-    g_free(sign_md5);
-
-    // Hold here to let the user interact
-    // Show a dialog.
-    gchar *text1, *text2;
-    text1 = g_strdup(_("step 1: a new window or tab of your browser should have been loaded. you have to login into your flickr account there and authorize darktable to upload photos before continuing."));
-    text2 = g_strdup(_("step 2: click the ok button once you are done."));
-
-    GtkWidget *window = dt_ui_main_window(darktable.gui->ui);
-    GtkWidget *flickr_auth_dialog = gtk_message_dialog_new (GTK_WINDOW (window),
-                                    GTK_DIALOG_DESTROY_WITH_PARENT,
-                                    GTK_MESSAGE_INFO,
-                                    GTK_BUTTONS_OK_CANCEL,
-                                    _("flickr authentication"));
-    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (flickr_auth_dialog),
-        "%s\n\n%s", text1, text2);
-
-    result = gtk_dialog_run (GTK_DIALOG (flickr_auth_dialog));
-
-    gtk_widget_destroy(flickr_auth_dialog);
-
-    g_free (text1);
-    g_free (text2);
-
-    switch (result)
-    {
-      case GTK_RESPONSE_OK:
-        token = flickcurl_auth_getToken(ctx->fc, frob);
-        g_free(frob);
-        // TODO: Handle timeouts errors
-        if (token)
-        {
-          flickr_user_token = g_strdup (token);
-        }
-        else
-        {
-          g_free(token);
-          _flickr_api_free(ctx);
-          return NULL;
-        }
-        ui->user_token = g_strdup(flickr_user_token);
-        flickcurl_set_auth_token(ctx->fc, flickr_user_token);
-
-        /* Add creds to pwstorage */
-        GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
-        gchar* username = g_strdup(gtk_entry_get_text(ui->entry1));
-
-        g_hash_table_insert(table, "username", username);
-        g_hash_table_insert(table, "token", flickr_user_token);
-
-        if( !dt_pwstorage_set("flickr", table) )
-        {
-          dt_print(DT_DEBUG_PWSTORAGE,"[flickr] cannot store username/token\n");
-        }
-
-        g_free(flickr_user_token);
-        g_hash_table_destroy(table);
-
-        return ctx;
-        break;
-
-      default:
-        dt_print(DT_DEBUG_PWSTORAGE,"[flickr] user cancelled the login process\n");
-        return NULL;
-    }
-  }
-
-  if (perms)
-    free(perms);
-
-  return NULL;
 }
 
 
@@ -316,6 +347,7 @@ void static set_status(dt_storage_flickr_gui_data_t *ui, gchar *message, gchar *
   gtk_label_set_markup(ui->label4, mup);
 }
 
+/*
 void static flickr_entry_changed(GtkEntry *entry, gpointer data)
 {
   dt_storage_flickr_gui_data_t *ui=(dt_storage_flickr_gui_data_t *)data;
@@ -332,6 +364,7 @@ void static flickr_entry_changed(GtkEntry *entry, gpointer data)
     gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
   }
 }
+*/
 
 flickcurl_photoset static **_flickr_api_photosets( _flickr_api_context_t *ctx, const char *user)
 {
@@ -369,7 +402,7 @@ void static refresh_albums(dt_storage_flickr_gui_data_t *ui)
     else
     {
       set_status(ui,_("not authenticated"), "#e07f7f");
-      gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
+      gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ), FALSE);
       return;
     }
   }
@@ -378,7 +411,7 @@ void static refresh_albums(dt_storage_flickr_gui_data_t *ui)
   GtkTreeModel *model=gtk_combo_box_get_model(ui->comboBox1);
   gtk_list_store_clear (GTK_LIST_STORE(model));
 
-  ui->albums = _flickr_api_photosets(ui->flickr_api, gtk_entry_get_text(ui->entry1));
+  ui->albums = _flickr_api_photosets(ui->flickr_api, NULL);
   if( ui->albums )
   {
 
@@ -484,11 +517,11 @@ gui_init (dt_imageio_module_storage_t *self)
   gtk_misc_set_alignment(GTK_MISC(ui->label5),      0.0, 0.5);
   gtk_misc_set_alignment(GTK_MISC(ui->label6),      0.0, 0.5);
 
-  ui->entry1 = GTK_ENTRY( gtk_entry_new() );
+//  ui->entry1 = GTK_ENTRY( gtk_entry_new() );
   ui->entry3 = GTK_ENTRY( gtk_entry_new() );  // Album title
   ui->entry4 = GTK_ENTRY( gtk_entry_new() );  // Album summary
 
-  dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry1));
+//  dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry1));
   dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry3));
   dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry4));
 
@@ -507,10 +540,11 @@ gui_init (dt_imageio_module_storage_t *self)
     g_signal_connect (G_OBJECT (ui->entry4), "focus-in-event",  G_CALLBACK(focus_in),  NULL);
     g_signal_connect (G_OBJECT (ui->entry4), "focus-out-event", G_CALLBACK(focus_out), NULL);
   */
-  GHashTable* table = dt_pwstorage_get("flickr");
+/*  GHashTable* table = dt_pwstorage_get("flickr");
   gchar* _username = g_strdup( g_hash_table_lookup(table, "username"));
   g_hash_table_destroy(table);
   gtk_entry_set_text( ui->entry1,  _username == NULL?"":_username );
+*/
   gtk_entry_set_text( ui->entry3, _("my new photoset") );
   gtk_entry_set_text( ui->entry4, _("exported from darktable") );
 
@@ -544,7 +578,7 @@ gui_init (dt_imageio_module_storage_t *self)
   gtk_box_pack_start(GTK_BOX(self->widget), hbox0, TRUE, FALSE, 5);
   gtk_box_pack_start(GTK_BOX(self->widget), hbox1, TRUE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX( hbox0 ), GTK_WIDGET( ui->label1 ), TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX( hbox0 ), GTK_WIDGET( ui->entry1 ), TRUE, FALSE, 0);
+//  gtk_box_pack_start(GTK_BOX( hbox0 ), GTK_WIDGET( ui->entry1 ), TRUE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX( hbox0 ), GTK_WIDGET( ui->button ), FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX( hbox1 ), vbox1, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX( hbox1 ), vbox2, TRUE, TRUE, 0);
@@ -577,7 +611,7 @@ gui_init (dt_imageio_module_storage_t *self)
 
   g_signal_connect(G_OBJECT(ui->dtbutton1), "clicked", G_CALLBACK(flickr_button1_clicked), (gpointer)ui);
   g_signal_connect(G_OBJECT(ui->button), "clicked", G_CALLBACK(flickr_button1_clicked), (gpointer)ui);
-  g_signal_connect(G_OBJECT(ui->entry1), "changed", G_CALLBACK(flickr_entry_changed), (gpointer)ui);
+//  g_signal_connect(G_OBJECT(ui->entry1), "changed", G_CALLBACK(flickr_entry_changed), (gpointer)ui);
   g_signal_connect(G_OBJECT(ui->comboBox1), "changed", G_CALLBACK(flickr_album_changed), (gpointer)ui);
 
   /**
@@ -591,8 +625,8 @@ gui_init (dt_imageio_module_storage_t *self)
   }
   */
 
-  if( _username )
-    g_free (_username);
+//  if( _username )
+//    g_free (_username);
   gtk_combo_box_set_active( ui->comboBox1, 0);
 }
 
