@@ -132,7 +132,11 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
   _flickr_api_context_t *ctx = (_flickr_api_context_t *)g_malloc(sizeof(_flickr_api_context_t));
   memset(ctx,0,sizeof(_flickr_api_context_t));
 
-  flickcurl_init ();
+  if (ctx->fc == NULL)
+    flickcurl_init ();
+  else
+    flickcurl_free (ctx->fc);
+    
   ctx->fc = flickcurl_new ();
   
   flickcurl_set_oauth_client_key (ctx->fc, API_KEY);
@@ -149,40 +153,6 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
 
   if (user_nsid)
     ui->user_token = username;
-
-#if 0
-//  if (username)
-  if (0)
-  {
-    /* Upgrade to the new oAuth system */
-
-    flickcurl_set_api_key (ctx->fc, API_KEY);
-    flickcurl_set_shared_secret (ctx->fc, SHARED_SECRET);
-
-    //perms = flickcurl_auth_checkToken(ctx->fc, username);
-    flickcurl_auth_checkToken(ctx->fc, username);
-    flickcurl_set_auth_token(ctx->fc, user_token);
-
-    rc = flickcurl_auth_oauth_getAccessToken (ctx->fc);
-
-    if (!rc)
-    {
-      access_token = g_strdup(flickcurl_get_oauth_token(ctx->fc));
-      access_token_secret = g_strdup(flickcurl_get_oauth_token_secret(ctx->fc));
-      
-      GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
-
-      //g_hash_table_insert(table, "username", username);
-      g_hash_table_insert(table, "username", "");
-      g_hash_table_insert(table, "token", "");
-      g_hash_table_insert(table, "oauth_token", access_token);
-      g_hash_table_insert(table, "oauth_token_secret", access_token_secret);
-
-      dt_pwstorage_set("flickr", table);
-    } 
-    g_free (username);
-  }
-#endif
 
   if (access_token == NULL || access_token_secret == NULL || username == NULL)
   {
@@ -918,7 +888,7 @@ free_params(dt_imageio_module_storage_t *self, void *params)
 {
   dt_storage_flickr_params_t *d = (dt_storage_flickr_params_t *)params;
 
-  _flickr_api_free(  d->flickr_api ); //TODO
+  _flickr_api_free (d->flickr_api); //TODO
 
   free(params);
 }
