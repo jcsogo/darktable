@@ -94,7 +94,7 @@ typedef struct dt_storage_flickr_params_t
 void static set_logged(dt_storage_flickr_gui_data_t *ui, gboolean logged);
 
 /** Authenticates and retreives an initialized flickr api object */
-_flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_data_t *ui);
+static flickcurl *_flickr_api_authenticate(dt_storage_flickr_gui_data_t *ui);
 
 flickcurl_upload_status static *_flickr_api_upload_photo(dt_storage_flickr_params_t *params, char *data, char *caption, char *description, gint imgid);
 
@@ -107,9 +107,10 @@ void static _flickr_api_free( _flickr_api_context_t *ctx )
   if (ctx->current_album != NULL)
     flickcurl_free_photoset (ctx->current_album);
 
-  flickcurl_free (ctx->fc);
+  if (ctx->fc != NULL)
+    flickcurl_free (ctx->fc);
 
-  g_free( ctx );
+ // g_free( ctx );
 }
 
 static void _flickr_api_error_handler(void *data, const char *message)
@@ -123,20 +124,18 @@ static void _flickr_api_error_handler(void *data, const char *message)
   }
 }
 
-_flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_data_t *ui)
+static flickcurl *_flickr_api_authenticate(dt_storage_flickr_gui_data_t *ui)
 {
-  //char *perms = NULL, *frob;
-  //gchar *token;
   gchar *username, *user_nsid, *access_token, *access_token_secret;
   gint rc;
-  _flickr_api_context_t *ctx = (_flickr_api_context_t *)g_malloc(sizeof(_flickr_api_context_t));
-  memset(ctx,0,sizeof(_flickr_api_context_t));
 
-  if (ctx->fc == NULL)
-    flickcurl_init ();
-  else
-    flickcurl_free (ctx->fc);
-    
+  _flickr_api_context_t *ctx = ui->flickr_api;
+
+  /* FIXME: A minor memleak that avoid double-free problems.
+  if (ctx->fc != NULL)
+    flickcurl_free(ctx->fc);
+  */
+
   ctx->fc = flickcurl_new ();
   
   flickcurl_set_oauth_client_key (ctx->fc, API_KEY);
@@ -151,10 +150,10 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
   access_token_secret = g_strdup (g_hash_table_lookup(table, "oauth_token_secret"));
   g_hash_table_destroy(table);
 
-  if (user_nsid)
-    ui->user_token = username;
+  if (user_nsid != NULL && ctx->needsReauthentication != TRUE)
+    ui->user_token = g_strdup(username);
 
-  if (access_token == NULL || access_token_secret == NULL || username == NULL)
+  if (access_token == NULL || access_token_secret == NULL || username == NULL || ctx->needsReauthentication == TRUE)
   {
     GError *error = NULL;
     const char *verifier = NULL;
@@ -188,8 +187,8 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
     GtkWidget *label = gtk_label_new(_("go to the browser and introduce the generated code"));
     GtkWidget *entry = gtk_entry_new();
 
-    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(label), TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(entry), TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(label), FALSE, FALSE, 10);
+    gtk_box_pack_start(GTK_BOX(content_area), GTK_WIDGET(entry), FALSE, FALSE, 10);
 
     gtk_dialog_set_default_response(GTK_DIALOG(flickr_auth_dialog), GTK_RESPONSE_ACCEPT);
 
@@ -198,13 +197,11 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
     gtk_show_uri (gdk_screen_get_default(), uri, gtk_get_current_event_time (), &error);
     
     if (gtk_dialog_run (GTK_DIALOG (flickr_auth_dialog)) == GTK_RESPONSE_ACCEPT)
-    {
         verifier = g_strdup(gtk_entry_get_text(GTK_ENTRY(entry)));
-    }
 
     gtk_widget_destroy(flickr_auth_dialog);
     
-    if (strcmp(verifier, ""))
+    if (verifier != NULL || g_strcmp0(verifier, ""))
     {
       flickcurl_free (ctx->fc);
       ctx->fc = flickcurl_new();
@@ -234,7 +231,7 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
         return NULL;
       }
 
-      ui->user_token = username;
+      ui->user_token = g_strdup(username);
 
       /* Add creds to pwstorage */
       GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
@@ -245,9 +242,7 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
       g_hash_table_insert(table, "user_nsid", user_nsid);
 
       if( !dt_pwstorage_set("flickr", table) )
-      {
         dt_print(DT_DEBUG_PWSTORAGE,"[flickr] cannot store user/token\n");
-      }
 
       g_free(access_token);
       g_free(access_token_secret);
@@ -256,7 +251,7 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
       g_hash_table_destroy(table);
 
       set_logged (ui, TRUE); 
-      return ctx;
+      return ctx->fc;
     }
     else
     {
@@ -272,7 +267,7 @@ _flickr_api_context_t static *_flickr_api_authenticate(dt_storage_flickr_gui_dat
     flickcurl_set_oauth_token_secret(ctx->fc, access_token_secret);
 
     set_logged (ui, TRUE);
-    return ctx;
+    return ctx->fc;
   }
 }
 
@@ -343,14 +338,18 @@ void static set_logged(dt_storage_flickr_gui_data_t *ui, gboolean logged)
   if (logged == FALSE || ui->user_token == NULL)
   {
     gtk_label_set_text (GTK_LABEL(ui->label1), _("not logged in"));
+    gtk_button_set_label (GTK_BUTTON(ui->button), _("login"));
+    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ), FALSE);
   }
   else
   {
     gchar *text = NULL;
 
-    text = dt_util_dstrcat (text, _("logged as %s"), ui->user_token);
+    text = dt_util_dstrcat (text, _("logged in as %s"), ui->user_token);
     // TODO: Use ellipsization and max_width when using fullname
     gtk_label_set_text (GTK_LABEL(ui->label1), text);
+    
+    gtk_button_set_label (GTK_BUTTON(ui->button), _("logout"));
   }
 }
 /*
@@ -386,12 +385,12 @@ void static refresh_albums(dt_storage_flickr_gui_data_t *ui)
   int i;
   gtk_widget_set_sensitive( GTK_WIDGET(ui->comboBox1), FALSE);
 
-  if (ui->flickr_api == NULL || ui->flickr_api->needsReauthentication == TRUE)
+  if (ui->flickr_api->fc == NULL || ui->flickr_api->needsReauthentication == TRUE)
   {
-    if (ui->flickr_api != NULL) _flickr_api_free (ui->flickr_api);
-    ui->flickr_api = _flickr_api_authenticate(ui);
-    if (ui->flickr_api == NULL)
+    ui->flickr_api->fc = _flickr_api_authenticate(ui);
+    if (ui->flickr_api->fc == NULL)
     {
+      set_logged(ui, FALSE);
       gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ), FALSE);
       return;
     }
@@ -457,9 +456,25 @@ gboolean static combobox_separator(GtkTreeModel *model,GtkTreeIter *iter,gpointe
 }
 
 // Refresh button pressed...
+void static flickr_refresh_clicked(GtkButton *button,gpointer data)
+{
+  dt_storage_flickr_gui_data_t * ui=(dt_storage_flickr_gui_data_t *)data;
+   
+  refresh_albums(ui);
+}
+
 void static flickr_button1_clicked(GtkButton *button,gpointer data)
 {
   dt_storage_flickr_gui_data_t * ui=(dt_storage_flickr_gui_data_t *)data;
+  if (ui->user_token != NULL)
+  {
+    ui->flickr_api->needsReauthentication = TRUE;
+    set_logged(ui, FALSE);
+    g_free(ui->user_token);
+    ui->user_token = NULL;
+    return;
+  }
+   
   refresh_albums(ui);
 }
 
@@ -485,6 +500,12 @@ gui_init (dt_imageio_module_storage_t *self)
   self->gui_data = (dt_storage_flickr_gui_data_t *)g_malloc(sizeof(dt_storage_flickr_gui_data_t));
   memset(self->gui_data,0,sizeof(dt_storage_flickr_gui_data_t));
   dt_storage_flickr_gui_data_t *ui= self->gui_data;
+  
+  ui->flickr_api = (_flickr_api_context_t *)g_malloc(sizeof(_flickr_api_context_t));
+  memset(ui->flickr_api,0,sizeof(_flickr_api_context_t));
+
+  flickcurl_init ();
+
   self->widget = gtk_vbox_new(FALSE, 0);
 
   GtkWidget *hbox1=gtk_hbox_new(FALSE,5);
@@ -599,7 +620,7 @@ gui_init (dt_imageio_module_storage_t *self)
   // Setup signals
   // add signal on realize and hide gtk_widget_hide(GTK_WIDGET(ui->hbox1));
 
-  g_signal_connect(G_OBJECT(ui->dtbutton1), "clicked", G_CALLBACK(flickr_button1_clicked), (gpointer)ui);
+  g_signal_connect(G_OBJECT(ui->dtbutton1), "clicked", G_CALLBACK(flickr_refresh_clicked), (gpointer)ui);
   g_signal_connect(G_OBJECT(ui->button), "clicked", G_CALLBACK(flickr_button1_clicked), (gpointer)ui);
 //  g_signal_connect(G_OBJECT(ui->entry1), "changed", G_CALLBACK(flickr_entry_changed), (gpointer)ui);
   g_signal_connect(G_OBJECT(ui->comboBox1), "changed", G_CALLBACK(flickr_album_changed), (gpointer)ui);
@@ -775,13 +796,16 @@ get_params(dt_imageio_module_storage_t *self, int *size)
   dt_storage_flickr_params_t *d = (dt_storage_flickr_params_t *)g_malloc(sizeof(dt_storage_flickr_params_t));
   if(!d) return NULL;
   memset(d,0,sizeof(dt_storage_flickr_params_t));
+  d->flickr_api = (_flickr_api_context_t *)g_malloc(sizeof(_flickr_api_context_t));
+  memset(d->flickr_api,0,sizeof(_flickr_api_context_t));
   d->hash = 1;
 
   // fill d from controls in ui
   if( ui->flickr_api && ui->flickr_api->needsReauthentication == FALSE)
   {
     // We are authenticated and off to actually export images..
-    d->flickr_api = ui->flickr_api;
+//    d->flickr_api = ui->flickr_api;
+    d->flickr_api->fc = ui->flickr_api->fc = _flickr_api_authenticate (ui);
     int index = gtk_combo_box_get_active(ui->comboBox1);
     if( index >= 0 )
     {
@@ -850,15 +874,15 @@ get_params(dt_imageio_module_storage_t *self, int *size)
     }
 
     // Let UI forget about this api context and recreate a new one for further usage...
-    ui->flickr_api = _flickr_api_authenticate(ui);
+    // FIXME Why?
+    d->flickr_api->fc = ui->flickr_api->fc = _flickr_api_authenticate(ui);
     if (!ui->flickr_api)
-      gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
+      set_logged (ui, FALSE);
   }
   else
   {
     //set_status(ui,_("not authenticated"), "#e07f7f");
     set_logged(ui, FALSE);
-    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
     dt_control_log(_("flickr account not authenticated"));
     g_free(d);
     return NULL;
