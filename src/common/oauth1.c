@@ -498,7 +498,7 @@ static gchar *dt_oauth_gen_nonce(dt_oauth_ctx_t *ctx, size_t size)
 static gchar *dt_oauth_gen_timestamp()
 {
   gint64 timestamp = g_get_real_time() / 1000000;
-  return g_strdup_printf("%llu", timestamp);
+  return g_strdup_printf("%ld", timestamp);
 }
 
 static void dt_oauth_add_oauth_params(dt_oauth_ctx_t *ctx, GTree *urlparams)
