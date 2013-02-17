@@ -68,14 +68,14 @@ void dt_oauth_ctx_destroy(dt_oauth_ctx_t *ctx)
   g_free(ctx);
 }
 
-int dt_oauth_set_opt(dt_oauth_ctx_t *ctx, dt_oauth_opt_t opt, const void *value)
+int dt_oauth_set_opt(dt_oauth_ctx_t *ctx, dt_oauth_opt_t opt, gpointer value)
 {
   g_return_val_if_fail(ctx != NULL, DT_OAUTH_NO_VALID_CONTEXT);
   switch (opt)
   {
     case DT_OAUTH_USE_AUTHORIZE_HEADER:
     {
-      ctx->use_authorize_header = (int)value;
+      ctx->use_authorize_header = GPOINTER_TO_INT(value);
       break;
     }
     case DT_OAUTH_USE_ALTERNATIVE_ENDPOINT:
@@ -205,7 +205,7 @@ static int dt_curl_query_get(dt_oauth_ctx_t *ctx, const char *url, GTree *params
     goto cleanup;
 
   char *response_data =  response->str;
-  int responsecode = 0;
+  long responsecode = 0;
   curl_easy_getinfo(ctx->priv->curl, CURLINFO_RESPONSE_CODE, &responsecode);
 
   //parse the response
@@ -309,7 +309,7 @@ static gboolean dt_curl_query_post(dt_oauth_ctx_t *ctx, const gchar *url, GTree 
     goto cleanup;
 
   char *response_data =  response->str;
-  int responsecode = 0;
+  long responsecode = 0;
   curl_easy_getinfo(ctx->priv->curl, CURLINFO_RESPONSE_CODE, &responsecode);
 
   res = callback(ctx, responsecode, response_data, callbackdata);

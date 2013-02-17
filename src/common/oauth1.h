@@ -117,7 +117,7 @@ void dt_oauth_ctx_destroy(dt_oauth_ctx_t *ctx);
  * @param value
  * @return 0 on success
  */
-int dt_oauth_set_opt(dt_oauth_ctx_t *ctx, dt_oauth_opt_t opt, const void *value);
+int dt_oauth_set_opt(dt_oauth_ctx_t *ctx, dt_oauth_opt_t opt, gpointer value);
 
 /**
  *
