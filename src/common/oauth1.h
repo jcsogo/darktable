@@ -82,7 +82,7 @@ typedef enum dt_oauth_opt_t{
  * @param data user data passed to callback
  * @return *MUST* returns 0 on success, error code on failure. user error codes SHOULD be above 1000
  */
-typedef int (*dt_oauth_reply_callback_t) (dt_oauth_ctx_t *ctx, int httpcode, const char *reply, gpointer data);
+typedef int (*dt_oauth_reply_callback_t) (dt_oauth_ctx_t *ctx, long int httpcode, const char *reply, gpointer data);
 
 /**
  * type of callback function called by dt_oauth_request_token and dt_oauth_access_token
