@@ -104,6 +104,24 @@ int dt_oauth_set_token(dt_oauth_ctx_t *ctx, const char *token_key, const char *t
   return DT_OAUTH_OK;
 }
 
+gchar *dt_oauth_get_token(dt_oauth_ctx_t *ctx)
+{
+  g_return_val_if_fail(ctx != NULL, NULL);
+  if (ctx->token_key != NULL)
+    return g_strdup(ctx->token_key);
+  else
+    return NULL;
+}
+
+gchar *dt_oauth_get_token_secret(dt_oauth_ctx_t *ctx)
+{
+  g_return_val_if_fail(ctx != NULL, NULL);
+  if (ctx->token_secret != NULL)
+    return g_strdup(ctx->token_secret);
+  else
+    return NULL;
+}
+
 static GHashTable *dt_oauth_urlencoded_to_table(const char *url)
 {
   GHashTable *paramtable = g_hash_table_new_full(g_str_hash, g_str_equal, (GDestroyNotify)g_free, (GDestroyNotify)free);

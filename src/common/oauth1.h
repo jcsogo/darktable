@@ -168,6 +168,20 @@ int dt_oauth_access_token(dt_oauth_ctx_t *ctx, const char *method, const char *s
 int dt_oauth_set_token(dt_oauth_ctx_t *ctx, const char *token_key, const char *token_secret);
 
 /**
+ * convenience function to get current access token
+ *
+ * @return the current token on success or NULL
+ */
+gchar *dt_oauth_get_token(dt_oauth_ctx_t *ctx);
+
+/**
+ * convenience function to get current access secret token
+ *
+ * @return the current secret token on success or NULL
+ */
+gchar *dt_oauth_get_token_secret(dt_oauth_ctx_t *ctx);
+
+/**
  * perfom a GET request signed with oauth credentials
  *
  * @param service the webservices url to call
