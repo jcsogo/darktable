@@ -187,9 +187,9 @@ static int dt_curl_query_get(dt_oauth_ctx_t *ctx, const char *url, GTree *params
   }
   curl_easy_reset(ctx->priv->curl);
   curl_easy_setopt(ctx->priv->curl, CURLOPT_URL, actualurl->str);
-#ifdef VERBOSE
+//#ifdef VERBOSE
   curl_easy_setopt(ctx->priv->curl, CURLOPT_VERBOSE, 2);
-#endif
+//#endif
   curl_easy_setopt(ctx->priv->curl, CURLOPT_WRITEFUNCTION, dt_curl_write_data_cb);
   curl_easy_setopt(ctx->priv->curl, CURLOPT_WRITEDATA, response);
   curl_easy_setopt(ctx->priv->curl, CURLOPT_SSL_VERIFYPEER, FALSE);
@@ -205,11 +205,14 @@ static int dt_curl_query_get(dt_oauth_ctx_t *ctx, const char *url, GTree *params
     goto cleanup;
 
   char *response_data =  response->str;
+  printf ("dt_curl_query_get RESPONSEDATA: %s\n", response_data);
   long responsecode = 0;
   curl_easy_getinfo(ctx->priv->curl, CURLINFO_RESPONSE_CODE, &responsecode);
 
   //parse the response
+  printf ("dt_curl_query_get RESPONSECODE: %ld\n", responsecode);
   res = callback(ctx, responsecode, response_data, callbackdata);
+  printf ("dt_curl_query_get CALLBACK response: %d\n", res);
 
   cleanup:
   g_string_free(actualurl, TRUE);
@@ -324,12 +327,13 @@ static gboolean dt_curl_query_post(dt_oauth_ctx_t *ctx, const gchar *url, GTree 
   return res;
 }
 
-static int dt_oauth_parse_urlencoded_reply(dt_oauth_ctx_t *ctx, int code, const gchar *reply, subcallbackdata_t *subcallback)
+static int dt_oauth_parse_urlencoded_reply(dt_oauth_ctx_t *ctx, long int code, const gchar *reply, subcallbackdata_t *subcallback)
 {
   g_return_val_if_fail(subcallback != NULL, -1);
   int ret = DT_OAUTH_OK;
+  printf ("CODE %ld\n", code);
   if (code != 200)
-    return -1;//FIXME better return code
+    return -2;//FIXME better return code
   GHashTable *paramtable = dt_oauth_urlencoded_to_table(reply);
   if (subcallback && subcallback->callback) //should always be true
     ret = subcallback->callback(ctx, paramtable, subcallback->data);
