@@ -157,11 +157,12 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 
   if (access_token == NULL || access_token_secret == NULL || username == NULL || ctx->needsReauthentication == TRUE)
   {
-    gchar *username, *password;
+    //gchar *username, *password;
+    gchar *username;
 
     //get text from entries
     username = g_strdup("jcsogo@gmail.com");
-    password = g_strdup("Randomize");
+    //password = g_strdup("Randomize");
 
     const char* parms[] = {
        "oauth_callback", "oob",
@@ -180,6 +181,11 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     access_token = dt_oauth_get_token (ctx->fc);
 
     const char *baseurl = dt_oauth_get_authorize_uri(ctx->fc);
+
+    GError *error = NULL;
+    gtk_show_uri(gdk_screen_get_default(),
+                 baseurl, gtk_get_current_event_time(), &error);
+
     
     ////////////// build & show the validation dialog
     gchar *text1 = _("step 1: a new window or tab of your browser should have been "
@@ -207,7 +213,8 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 
     ////////////// wait for the user to entrer the validation URL
     gint result;
-    gchar *token = NULL;
+    //gchar *token = NULL, *verifier = NULL;
+    gchar *verifier = NULL;
     const char *replyurl;
     while (TRUE)
     {
@@ -216,33 +223,35 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
         break;
       replyurl = gtk_entry_get_text(GTK_ENTRY(entry));
       if (replyurl == NULL || g_strcmp0(replyurl, "") == 0)
-      {
+      {/*
         gtk_message_dialog_format_secondary_markup(GTK_MESSAGE_DIALOG(fb_auth_dialog),
              "%s\n\n%s\n\n<span foreground=\"" MSGCOLOR_RED "\" ><small>%s</small></span>",
-             text1, text2, _("please enter the validation url"));
+             text1, text2, _("please enter the validation url"));*/
+        
         continue;
       }
-    }
+    
 
-    char* *urlchunks = g_strsplit_set(url, "#&=", -1);
-    //starts at 1 to skip the url prefix, then values are in the form key=value
-    for (int i = 1; urlchunks[i] != NULL; i += 2)
-    {
-      if ((g_strcmp0(urlchunks[i], "verifier") == 0) && (urlchunks[i + 1] != NULL))
+      char* *urlchunks = g_strsplit_set(replyurl, "#&=", -1);
+      //starts at 1 to skip the url prefix, then values are in the form key=value
+      for (int i = 1; urlchunks[i] != NULL; i ++)
       {
-        verifier = g_strdup(urlchunks[i + 1]);
-        break;
+        if ((g_strcmp0(urlchunks[i], "oauth_verifier") == 0) && (urlchunks[i + 1] != NULL))
+        {
+          verifier = g_strdup(urlchunks[i + 1]);
+          break;
+        }
       }
+      if (verifier != NULL) //we have a valid verifier
+        break;
+    /*  else
+        gtk_message_dialog_format_secondary_markup(
+              GTK_MESSAGE_DIALOG(fb_auth_dialog),
+              "%s\n\n%s%s\n\n<span foreground=\"" MSGCOLOR_RED "\"><small>%s</small></span>",
+              text1, text2,
+              _("the given url is not valid, it should look like: "),
+                FB_WS_BASE_URL"connect/login_success.html?...");*/
     }
-    if (verifier != NULL) //we have a valid verifier
-      break;
-    else
-      gtk_message_dialog_format_secondary_markup(
-            GTK_MESSAGE_DIALOG(fb_auth_dialog),
-            "%s\n\n%s%s\n\n<span foreground=\"" MSGCOLOR_RED "\"><small>%s</small></span>",
-            text1, text2,
-            _("the given url is not valid, it should look like: "),
-              FB_WS_BASE_URL"connect/login_success.html?...");
     
     gtk_widget_destroy(GTK_WIDGET(fb_auth_dialog));
     
@@ -257,7 +266,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     const char* params[] = {
         "oauth_token", access_token,
         "oauth_callback", "http://www.darktable.org/",
-        "oauth_verifier", verifier
+        "oauth_verifier", verifier,
         NULL};
     rc = dt_oauth_access_token(ctx->fc, "GET", "oauth/access_token", params, NULL, NULL);
     printf ("500px: access token called. Return %d\n", rc);
