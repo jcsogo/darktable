@@ -233,6 +233,8 @@ int dt_oauth_post(dt_oauth_ctx_t *ctx, const char *service, const char **extrapa
  */
 int dt_oauth_post_files(dt_oauth_ctx_t *ctx, const char *service, const char **files, const char **extraparam, dt_oauth_reply_callback_t callback, gpointer callbackdata);
 
+const char *dt_oauth_get_authorize_uri(dt_oauth_ctx_t *ctx);
+
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-space on;

@@ -22,6 +22,7 @@
 #include <gtk/gtk.h>
 #include <curl/curl.h>
 #include "oauth1.h"
+#include "common/utility.h"
 
 typedef struct dt_oauth_ctx_priv_t
 {
@@ -650,6 +651,16 @@ int dt_oauth_access_token(dt_oauth_ctx_t *ctx, const char *method, const char *s
     return dt_oauth_get(ctx, service, extraparam, (dt_oauth_reply_callback_t)dt_oauth_parse_urlencoded_reply, &update_oauth_info_cb);
   else
     return dt_oauth_post(ctx, service, extraparam, (dt_oauth_reply_callback_t)dt_oauth_parse_urlencoded_reply, &update_oauth_info_cb);
+}
+
+const char *dt_oauth_get_authorize_uri(dt_oauth_ctx_t *ctx)
+{
+  g_return_val_if_fail(ctx != NULL, NULL);
+
+  char *url = g_strconcat(ctx->endpoint, "oauth/authorize", NULL);
+  url = dt_util_dstrcat(url, "?oauth_token=%s&oauth_callback=https://www.500px.com/", ctx->token_key);
+
+  return url;
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
