@@ -168,7 +168,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
        "oauth_callback", "oob",
        NULL };
 
-    rc = dt_oauth_request_token (ctx->fc, "GET", "oauth/request_token", parms, NULL, NULL);
+    rc = dt_oauth_request_token (ctx->fc, "POST", "oauth/request_token", parms, NULL, NULL);
 
     if (rc)
     {
@@ -268,7 +268,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
         "oauth_callback", "http://www.darktable.org/",
         "oauth_verifier", verifier,
         NULL};
-    rc = dt_oauth_access_token(ctx->fc, "GET", "oauth/access_token", params, NULL, NULL);
+    rc = dt_oauth_access_token(ctx->fc, "POST", "oauth/access_token", params, NULL, NULL);
     printf ("500px: access token called. Return %d\n", rc);
 
     if (!rc)

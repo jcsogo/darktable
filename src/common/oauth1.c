@@ -312,9 +312,9 @@ static gboolean dt_curl_query_post(dt_oauth_ctx_t *ctx, const gchar *url, GTree 
     g_string_free(formencoded_params, FALSE);
   }
 
-#ifdef VERBOSE
+//#ifdef VERBOSE
   curl_easy_setopt(ctx->priv->curl, CURLOPT_VERBOSE, 2);
-#endif
+//#endif
   curl_easy_setopt(ctx->priv->curl, CURLOPT_WRITEFUNCTION, dt_curl_write_data_cb);
   curl_easy_setopt(ctx->priv->curl, CURLOPT_WRITEDATA, response);
   curl_easy_setopt(ctx->priv->curl, CURLOPT_SSL_VERIFYPEER, FALSE);
