@@ -67,6 +67,10 @@ typedef struct dt_lib_snapshots_t
   double vp_width,vp_height,vp_xpointer,vp_ypointer;
 
   GtkWidget *take_button;
+  GtkWidget *split_button;
+
+  /* Overlay or split mode? */
+  gboolean split;
 
 }
 dt_lib_snapshots_t;
@@ -74,6 +78,7 @@ dt_lib_snapshots_t;
 /* callback for take snapshot */
 static void _lib_snapshots_add_button_clicked_callback (GtkWidget *widget, gpointer user_data);
 static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer user_data);
+static void _lib_snapshots_split_button_toggled_callback (GtkWidget *widget, gpointer user_data);
 
 
 const char* name()
@@ -116,7 +121,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   double x_start = width  > darktable.thumbnail_width  ? (width - darktable.thumbnail_width) *.5f:0;
   double y_start = height > darktable.thumbnail_height ? (height- darktable.thumbnail_height)*.5f:0;
 
-  if(d->snapshot_image)
+  if(d->snapshot_image && d->split == TRUE)
   {
     d->vp_width = width;
     d->vp_height = height;
@@ -166,6 +171,12 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
                                 (d->vertical ? height*0.5 : height*d->vp_ypointer)-(s*0.5),
                                 s,s,d->vertical?1:0);
     }
+  }
+  else
+  {
+    cairo_set_source_surface(cri, d->snapshot_image, 0, 0);
+    cairo_rectangle(cri,0,0,width,height);
+    cairo_fill(cri);
   }
 }
 
@@ -295,6 +306,13 @@ void gui_init(dt_lib_module_t *self)
                _("take snapshot to compare with another image or the same image at another stage of development"),
                (char *)NULL);
 
+  button = gtk_toggle_button_new_with_label(_("split"));
+  d->split_button = button;
+  g_signal_connect(G_OBJECT(button), "toggled", G_CALLBACK(_lib_snapshots_split_button_toggled_callback), self);
+  g_object_set(button, "tooltip-text",
+               _("show split view"),
+               (char *)NULL);
+
   /*
    * initialize snapshots
    */
@@ -325,7 +343,11 @@ void gui_init(dt_lib_module_t *self)
 
   /* add snapshot box and take snapshot button to widget ui*/
   gtk_box_pack_start(GTK_BOX(self->widget), d->snapshots_box,TRUE,TRUE,0);
-  gtk_box_pack_start(GTK_BOX(self->widget), button, TRUE,TRUE,0);
+
+  GtkWidget *hbox = gtk_hbox_new(FALSE, 2);
+  gtk_box_pack_start(GTK_BOX(hbox), d->take_button, TRUE,TRUE,0);
+  gtk_box_pack_start(GTK_BOX(hbox), d->split_button, TRUE,TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE,TRUE, 0);
 
 }
 
@@ -337,6 +359,16 @@ void gui_cleanup(dt_lib_module_t *self)
 
   g_free(self->data);
   self->data = NULL;
+}
+
+static void _lib_snapshots_split_button_toggled_callback(GtkWidget *widget, gpointer user_data)
+{
+  dt_lib_module_t *self = (dt_lib_module_t*)user_data;
+  dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
+
+  d->split = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+
+  dt_control_queue_redraw_center();
 }
 
 static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpointer user_data)
