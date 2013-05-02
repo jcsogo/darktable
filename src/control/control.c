@@ -420,7 +420,7 @@ void dt_control_create_database_schema()
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
                         "create table history (imgid integer, num integer, module integer, "
                         "operation varchar(256), op_params blob, enabled integer, "
-                        "blendop_params blob, blendop_version integer, multi_priority integer, multi_name varchar(256))", NULL, NULL, NULL);
+                        "blendop_params blob, blendop_version integer, multi_priority integer, multi_name varchar(256)), snapshot_num integer", NULL, NULL, NULL);
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
                         "create table mask (imgid integer, formid integer, form integer, name varchar(256), "
                         "version integer, points blob, points_count integer, source blob)", NULL, NULL, NULL);
@@ -449,6 +449,8 @@ void dt_control_create_database_schema()
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
                         "create table meta_data (id integer,key integer,value varchar)",
                         NULL, NULL, NULL);
+  DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
+                        "create table snapshots (image_id integer, num integer, name varchar(256))", NULL, NULL, NULL); 
   // quick hack to detect if the db is already used by another process
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
                         "create table lock (id integer)",
