@@ -425,7 +425,29 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   /* request a new snapshot for top slot */
   dt_dev_snapshot_request(darktable.develop, (const char *)&d->snapshot[0].filename);
 
+  /* write snapshot name and history in the db */
+  _lib_snapshots_write_name (name,  d->num_snapshots, darktable.develop->image_storage.id );
+  dt_dev_write_snapshot_history(darktable.develop, d->num_snapshots);
+
 }
+
+static void _lib_snapshots_write_name(gchar *name, int num, int imgid)
+{
+  sqlite3_stmt *stmt;
+  int imgid = dev.>
+
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                              "insert into snapshots (imgid, num, name) values (?1, ?2, ?3)",
+                              NULL, NULL, NULL);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, num);
+  DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 3, name, -1, SQLITE_TRANSIENT);
+
+  sqlite3_step(stmt);
+
+  sqlite_finalize(stmt);
+}
+
 
 static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer user_data)
 {

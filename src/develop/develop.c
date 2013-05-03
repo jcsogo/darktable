@@ -449,24 +449,26 @@ void dt_dev_configure (dt_develop_t *dev, int wd, int ht)
 }
 
 // helper used to synch a single history item with db
-int dt_dev_write_history_item(const dt_image_t *image, dt_dev_history_item_t *h, int32_t num)
+int dt_dev_write_history_item(const dt_image_t *image, dt_dev_history_item_t *h, int32_t num, int32_t snapshot)
 {
   if(!image) return 1;
   sqlite3_stmt *stmt;
-  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select num from history where imgid = ?1 and num = ?2", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select num from history where imgid = ?1 and num = ?2 and snapshot_num = ?3", -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, image->id);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, num);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 3, snapshot);
   if(sqlite3_step(stmt) != SQLITE_ROW)
   {
     sqlite3_finalize(stmt);
-    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "insert into history (imgid, num) values (?1, ?2)", -1, &stmt, NULL);
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "insert into history (imgid, num, snapshot_num) values (?1, ?2, ?3)", -1, &stmt, NULL);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, image->id);
     DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, num);
+    DT_DEBUG_SQLITE3_BIND_INT(stmt, 3, snapshot);
     sqlite3_step (stmt);
   }
   // printf("[dev write history item] writing %d - %s params %f %f\n", h->module->instance, h->module->op, *(float *)h->params, *(((float *)h->params)+1));
   sqlite3_finalize (stmt);
-  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "update history set operation = ?1, op_params = ?2, module = ?3, enabled = ?4, blendop_params = ?7, blendop_version = ?8, multi_priority = ?9, multi_name = ?10 where imgid = ?5 and num = ?6", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "update history set operation = ?1, op_params = ?2, module = ?3, enabled = ?4, blendop_params = ?7, blendop_version = ?8, multi_priority = ?9, multi_name = ?10 where imgid = ?5 and num = ?6 and snapshot_num = ?11", -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 1, h->module->op, strlen(h->module->op), SQLITE_TRANSIENT);
   DT_DEBUG_SQLITE3_BIND_BLOB(stmt, 2, h->params, h->module->params_size, SQLITE_TRANSIENT);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 3, h->module->version());
@@ -477,6 +479,7 @@ int dt_dev_write_history_item(const dt_image_t *image, dt_dev_history_item_t *h,
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 8, dt_develop_blend_version());
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 9, h->multi_priority);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 10, h->multi_name, strlen(h->multi_name), SQLITE_TRANSIENT);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 11, snapshot);
 
   sqlite3_step (stmt);
   sqlite3_finalize (stmt);
@@ -542,7 +545,7 @@ void dt_dev_add_history_item(dt_develop_t *dev, dt_iop_module_t *module, gboolea
       memcpy(hist->params, module->params, module->params_size);
 
       if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING)
-        memcpy(hist->blend_params, module->blend_params, sizeof(dt_develop_blend_params_t));
+      memcpy(hist->blend_params, module->blend_params, sizeof(dt_develop_blend_params_t));
 
       // if the user changed stuff and the module is still not enabled, do it:
       if(!hist->enabled && !module->enabled)
@@ -718,7 +721,7 @@ void dt_dev_write_history(dt_develop_t *dev)
   for(int i=0; i<dev->history_end && history; i++)
   {
     dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
-    (void)dt_dev_write_history_item(&dev->image_storage, hist, i);
+    (void)dt_dev_write_history_item(&dev->image_storage, hist, i, -1);
     history = g_list_next(history);
     changed = TRUE;
   }
@@ -732,6 +735,23 @@ void dt_dev_write_history(dt_develop_t *dev)
     dt_tag_detach(tagid, dev->image_storage.id);
 
 }
+
+void dt_dev_write_snapshot_history(dt_develop_t *dev, int snapshot)
+{
+  sqlite3_stmt *stmt;
+
+  gboolean changed = FALSE;
+
+  GList *history = dev->history;
+  for(int i=0; i<dev->history_end && history; i++)
+  {
+    dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
+    (void)dt_dev_write_history_item(&dev->image_storage, hist, i, snapshot);
+    history = g_list_next(history);
+    changed = TRUE;
+  }
+}
+
 
 static void
 auto_apply_presets(dt_develop_t *dev)
@@ -762,21 +782,21 @@ auto_apply_presets(dt_develop_t *dev)
 
   // cleanup
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
-                        "delete from memory.history",
-                        NULL, NULL, NULL);
+      "delete from memory.history",
+      NULL, NULL, NULL);
   const char *preset_table[2] = {"presets", "legacy_presets"};
   const int legacy = (image->flags & DT_IMAGE_NO_LEGACY_PRESETS) ? 0 : 1;
   char query[1024];
   snprintf(query, 1024,
-           "insert into memory.history select ?1, 0, op_version, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name "
-           "from %s where autoapply=1 and "
-           "?2 like model and ?3 like maker and ?4 like lens and "
-           "?5 between iso_min and iso_max and "
-           "?6 between exposure_min and exposure_max and "
-           "?7 between aperture_min and aperture_max and "
-           "?8 between focal_length_min and focal_length_max and "
-           "(isldr = 0 or isldr=?9) order by writeprotect desc, "
-           "length(model), length(maker), length(lens)", preset_table[legacy]);
+      "insert into memory.history select ?1, 0, op_version, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name "
+      "from %s where autoapply=1 and "
+                              "?2 like model and ?3 like maker and ?4 like lens and "
+                              "?5 between iso_min and iso_max and "
+                              "?6 between exposure_min and exposure_max and "
+                              "?7 between aperture_min and aperture_max and "
+                              "?8 between focal_length_min and focal_length_max and "
+                              "(isldr = 0 or isldr=?9) order by writeprotect desc, "
+                              "length(model), length(maker), length(lens)", preset_table[legacy]);
   // query for all modules at once:
   sqlite3_stmt *stmt;
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), query, -1, &stmt, NULL);
@@ -797,8 +817,8 @@ auto_apply_presets(dt_develop_t *dev)
     int cnt = 0;
     // count what we found:
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                "select count(*) from memory.history",
-                                -1, &stmt, NULL);
+        "select count(*) from memory.history",
+        -1, &stmt, NULL);
     if(sqlite3_step(stmt) == SQLITE_ROW)
     {
       // if there is anything..
@@ -807,8 +827,8 @@ auto_apply_presets(dt_develop_t *dev)
       // fprintf(stderr, "[auto_apply_presets] imageid %d found %d matching presets (legacy %d)\n", imgid, cnt, legacy);
       // advance the current history by that amount:
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                  "update history set num=num+?1 where imgid=?2",
-                                  -1, &stmt, NULL);
+          "update history set num=num+?1 where imgid=?2",
+          -1, &stmt, NULL);
       DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, cnt);
       DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, imgid);
 
@@ -817,9 +837,9 @@ auto_apply_presets(dt_develop_t *dev)
         // and finally prepend the rest with increasing numbers (starting at 0)
         sqlite3_finalize(stmt);
         DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                    "insert into history select imgid, rowid-1, module, operation, op_params, enabled, "
-                                    "blendop_params, blendop_version, multi_priority, multi_name from memory.history",
-                                    -1, &stmt, NULL);
+            "insert into history select imgid, rowid-1, module, operation, op_params, enabled, "
+            "blendop_params, blendop_version, multi_priority, multi_name from memory.history",
+          -1, &stmt, NULL);
         sqlite3_step(stmt);
       }
     }
@@ -848,7 +868,7 @@ void dt_dev_read_history(dt_develop_t *dev)
 
   sqlite3_stmt *stmt;
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                              "select imgid, num, module, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name from history where imgid = ?1 order by num", -1, &stmt, NULL);
+      "select imgid, num, module, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name from history where imgid = ?1 and snapshot_num = -1 order by num", -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dev->image_storage.id);
   dev->history_end = 0;
   while(sqlite3_step(stmt) == SQLITE_ROW)
