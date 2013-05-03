@@ -431,6 +431,8 @@ void dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid)
 
   dt_dev_read_history(dev);
 
+  //TODO: Read snapshots here (both the name and the image)
+
   dev->first_load = 0;
 }
 
