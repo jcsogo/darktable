@@ -450,7 +450,7 @@ void dt_control_create_database_schema()
                         "create table meta_data (id integer,key integer,value varchar)",
                         NULL, NULL, NULL);
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
-                        "create table snapshots (image_id integer, num integer, name varchar(256))", NULL, NULL, NULL); 
+                        "create table snapshots (imgid integer, num integer, name varchar(256))", NULL, NULL, NULL);
   // quick hack to detect if the db is already used by another process
   DT_DEBUG_SQLITE3_EXEC(dt_database_get(darktable.db),
                         "create table lock (id integer)",
