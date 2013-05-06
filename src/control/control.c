@@ -609,6 +609,9 @@ void dt_control_init(dt_control_t *s)
       sqlite3_exec(dt_database_get(darktable.db),
                    "create table meta_data (id integer, key integer,value varchar)",
                    NULL, NULL, NULL);
+      sqlite3_exec(dt_database_get(darktable.db),
+                   "create table snapshots (imgid integer, num integer, name varchar(256))", NULL, NULL, NULL);
+      
       // quick hack to detect if the db is already used by another process
       sqlite3_exec(dt_database_get(darktable.db),
                    "create table lock (id integer)",
@@ -670,6 +673,9 @@ void dt_control_init(dt_control_t *s)
                    NULL, NULL, NULL);
       sqlite3_exec(dt_database_get(darktable.db),
                    "alter table images add column lightmap blob",
+                   NULL, NULL, NULL);
+      sqlite3_exec(dt_database_get(darktable.db),
+                   "alter table history add column snapshot_num integer default -1",
                    NULL, NULL, NULL);
       /*      sqlite3_exec(dt_database_get(darktable.db),
                          "alter table film_rolls add column external_drive varchar(1024)",
