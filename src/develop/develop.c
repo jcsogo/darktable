@@ -740,9 +740,9 @@ void dt_dev_write_history(dt_develop_t *dev)
 
 void dt_dev_write_snapshot_history(dt_develop_t *dev, int snapshot)
 {
-  sqlite3_stmt *stmt;
+  //sqlite3_stmt *stmt;
 
-  gboolean changed = FALSE;
+  //gboolean changed = FALSE;
 
   GList *history = dev->history;
   for(int i=0; i<dev->history_end && history; i++)
@@ -750,10 +750,9 @@ void dt_dev_write_snapshot_history(dt_develop_t *dev, int snapshot)
     dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
     (void)dt_dev_write_history_item(&dev->image_storage, hist, i, snapshot);
     history = g_list_next(history);
-    changed = TRUE;
+    //changed = TRUE;
   }
 }
-
 
 static void
 auto_apply_presets(dt_develop_t *dev)
@@ -858,6 +857,11 @@ auto_apply_presets(dt_develop_t *dev)
   // make sure these end up in the image_cache + xmp (sync through here if we set the flag)
   dt_image_cache_write_release(darktable.image_cache, image, DT_IMAGE_CACHE_SAFE);
   dt_image_cache_read_release(darktable.image_cache, cimg);
+}
+
+void dt_dev_read_snapshot_history(dt_develop_t *dev, int snapshot)
+{
+  // TODO: Fill this in
 }
 
 void dt_dev_read_history(dt_develop_t *dev)

@@ -371,21 +371,20 @@ static void _lib_snapshots_split_button_toggled_callback(GtkWidget *widget, gpoi
   dt_control_queue_redraw_center();
 }
 
-static void _lib_snapshots_write_name(gchar *name, int num, int imgid)
+static void _lib_snapshots_write_name(const gchar *name, int num, int imgid)
 {
   sqlite3_stmt *stmt;
-  int imgid = dev.>
 
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "insert into snapshots (imgid, num, name) values (?1, ?2, ?3)",
-                              NULL, NULL, NULL);
+                              -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, num);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 3, name, -1, SQLITE_TRANSIENT);
 
   sqlite3_step(stmt);
 
-  sqlite_finalize(stmt);
+  sqlite3_finalize(stmt);
 }
 
 static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpointer user_data)
