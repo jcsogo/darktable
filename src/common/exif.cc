@@ -1232,6 +1232,115 @@ static void _exif_import_tags(dt_image_t *img,Exiv2::XmpData::iterator &pos)
   sqlite3_finalize(stmt_upd_tagxtag2);
 }
 
+void _lib_exif_read_history(Exiv2::XmpData::iterator ver,
+                            Exiv2::XmpData::iterator en,
+                            Exiv2::XmpData::iterator op,
+                            Exiv2::XmpData::iterator param,
+                            Exiv2::XmpData::iterator blendop,
+                            Exiv2::XmpData::iterator blendop_version,
+                            Exiv2::XmpData::iterator multi_priority,
+                            Exiv2::XmpData::iterator multi_name,
+                            Exiv2::XmpData xmpData,
+                            int snapshot, dt_image_t *img)
+{
+  const int cnt = ver->count();
+  if(cnt == en->count() && cnt == op->count() && cnt == param->count())
+  {
+    
+    sqlite3_stmt *stmt_sel_num, *stmt_ins_hist, *stmt_upd_hist;
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                "select num from history where imgid = ?1 and num = ?2",
+                                -1, &stmt_sel_num, NULL);
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                "insert into history (imgid, num) values (?1, ?2)",
+                                -1, &stmt_ins_hist, NULL);
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                "update history set operation = ?1, op_params = ?2, "
+                                "blendop_params = ?7, blendop_version = ?8, multi_priority = ?9, multi_name = ?10, module = ?3, enabled = ?4 "
+                                "where imgid = ?5 and num = ?6", -1, &stmt_upd_hist, NULL);
+    for(int i=0; i<cnt; i++)
+    {
+      const int modversion = ver->toLong(i);
+      const int enabled = en->toLong(i);
+      const char *operation = op->toString(i).c_str();
+      const char *param_c = param->toString(i).c_str();
+      const int param_c_len = strlen(param_c);
+      const int params_len = param_c_len/2;
+      unsigned char *params = (unsigned char *)malloc(params_len);
+      dt_exif_xmp_decode(param_c, params, param_c_len);
+      // TODO: why this update set?
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 1, img->id);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 2, i);
+      if(sqlite3_step(stmt_sel_num) != SQLITE_ROW)
+      {
+        DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 1, img->id);
+        DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 2, i);
+        sqlite3_step (stmt_ins_hist);
+        sqlite3_reset(stmt_ins_hist);
+        sqlite3_clear_bindings(stmt_ins_hist);
+      }
+
+      DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 1, operation, strlen(operation), SQLITE_TRANSIENT);
+      DT_DEBUG_SQLITE3_BIND_BLOB(stmt_upd_hist, 2, params, params_len, SQLITE_TRANSIENT);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 3, modversion);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 4, enabled);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 5, img->id);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 6, i);
+
+      /* check if we got blendop from xmp */
+      unsigned char *blendop_params = NULL;
+      unsigned int blendop_size = 0;
+      if(blendop != xmpData.end() && blendop->size() > 0 && blendop->count () > i && blendop->toString(i).c_str() != NULL)
+      {
+        blendop_size = strlen(blendop->toString(i).c_str())/2;
+        blendop_params = (unsigned char *)malloc(blendop_size);
+        dt_exif_xmp_decode(blendop->toString(i).c_str(),blendop_params,strlen(blendop->toString(i).c_str()));
+        DT_DEBUG_SQLITE3_BIND_BLOB(stmt_upd_hist, 7, blendop_params, blendop_size, SQLITE_TRANSIENT);
+      }
+      else
+        sqlite3_bind_null(stmt_upd_hist, 7);
+
+      /* check if we got blendop_version from xmp; if not assume 1 as default */
+      int blversion = 1;
+      if(blendop_version != xmpData.end() && blendop_version->count() > i)
+      {
+        blversion = blendop_version->toLong(i);
+      }
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 8, blversion);
+
+      /* multi instances */
+      int mprio = 0;
+      if (multi_priority != xmpData.end() && multi_priority->count() > i)  mprio = multi_priority->toLong(i);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 9, mprio);
+      if(multi_name != xmpData.end() && multi_name->size() > 0 &&
+          multi_name->count() > i && multi_name->toString(i).c_str() != NULL)
+      {
+        const char *mname = multi_name->toString(i).c_str();
+        DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 10, mname, strlen(mname), SQLITE_TRANSIENT);
+      }
+      else
+      {
+        const char *mname = " ";
+        DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 10, mname, strlen(mname), SQLITE_TRANSIENT);
+      }
+
+
+      sqlite3_step (stmt_upd_hist);
+      free(params);
+      free(blendop_params);
+
+      sqlite3_reset(stmt_sel_num);
+      sqlite3_clear_bindings(stmt_sel_num);
+      sqlite3_reset(stmt_upd_hist);
+      sqlite3_clear_bindings(stmt_upd_hist);
+
+    }
+    sqlite3_finalize(stmt_sel_num);
+    sqlite3_finalize(stmt_ins_hist);
+    sqlite3_finalize(stmt_upd_hist);
+  }
+}
+
 // need a write lock on *img (non-const) to write stars (and soon color labels).
 int dt_exif_xmp_read (dt_image_t *img, const char* filename, const int history_only)
 {
@@ -1386,6 +1495,21 @@ int dt_exif_xmp_read (dt_image_t *img, const char* filename, const int history_o
     }
 
     // history
+    
+    // clear history and snapshot's history
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                "delete from history where imgid = ?1", -1, &stmt, NULL);
+    DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, img->id);
+    sqlite3_step(stmt);
+    sqlite3_finalize (stmt);
+
+    DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                "delete from snapshots where imgid = ?1", -1, &stmt, NULL);
+    DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, img->id);
+    sqlite3_step(stmt);
+    sqlite3_finalize (stmt);
+
+    
     Exiv2::XmpData::iterator ver;
     Exiv2::XmpData::iterator en;
     Exiv2::XmpData::iterator op;
@@ -1400,106 +1524,66 @@ int dt_exif_xmp_read (dt_image_t *img, const char* filename, const int history_o
          (op=xmpData.findKey(Exiv2::XmpKey("Xmp.darktable.history_operation")))   != xmpData.end() &&
          (param=xmpData.findKey(Exiv2::XmpKey("Xmp.darktable.history_params")))   != xmpData.end() )
     {
-      const int cnt = ver->count();
-      if(cnt == en->count() && cnt == op->count() && cnt == param->count())
+      // Read all the history from the xmp file
+      _lib_exif_read_history (ver, en, op, param, blendop, blendop_version,
+                              multi_priority, multi_name, xmpData, -1, img);
+    }
+ 
+    // snapshots' history
+    Exiv2::XmpData::iterator snapshots;
+    Exiv2::XmpData::iterator snapshot_name;
+    Exiv2::XmpData::iterator snapshot_num;
+
+    //TODO bump xmp version and check it to avoid other problems
+    if ( (snapshots=xmpData.findKey(Exiv2::XmpKey("Xmp.darktable.snapshots"))) != xmpData.end() )
+    {
+      int snapshots_cnt = snapshots->count();
+      // TODO: This number should match the number stored in Xmp.darktable.snapshots_total
+      if (snapshots_cnt > 0)
       {
-        // clear history
-        DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                    "delete from history where imgid = ?1", -1, &stmt, NULL);
-        DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, img->id);
-        sqlite3_step(stmt);
-        sqlite3_finalize (stmt);
-        sqlite3_stmt *stmt_sel_num, *stmt_ins_hist, *stmt_upd_hist;
-        DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                    "select num from history where imgid = ?1 and num = ?2",
-                                    -1, &stmt_sel_num, NULL);
-        DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                    "insert into history (imgid, num) values (?1, ?2)",
-                                    -1, &stmt_ins_hist, NULL);
-        DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                    "update history set operation = ?1, op_params = ?2, "
-                                    "blendop_params = ?7, blendop_version = ?8, multi_priority = ?9, multi_name = ?10, module = ?3, enabled = ?4 "
-                                    "where imgid = ?5 and num = ?6", -1, &stmt_upd_hist, NULL);
-        for(int i=0; i<cnt; i++)
+        for (int i = 0; i < snapshots_cnt; i++)
         {
-          const int modversion = ver->toLong(i);
-          const int enabled = en->toLong(i);
-          const char *operation = op->toString(i).c_str();
-          const char *param_c = param->toString(i).c_str();
-          const int param_c_len = strlen(param_c);
-          const int params_len = param_c_len/2;
-          unsigned char *params = (unsigned char *)malloc(params_len);
-          dt_exif_xmp_decode(param_c, params, param_c_len);
-          // TODO: why this update set?
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 1, img->id);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 2, i);
-          if(sqlite3_step(stmt_sel_num) != SQLITE_ROW)
-          {
-            DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 1, img->id);
-            DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 2, i);
-            sqlite3_step (stmt_ins_hist);
-            sqlite3_reset(stmt_ins_hist);
-            sqlite3_clear_bindings(stmt_ins_hist);
-          }
+          // If Xmp.darktable.snapshots key exists, all these have to exist also
+          char key[1024];
+          
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:number", i);
+          snapshot_num = xmpData.findKey(Exiv2::XmpKey(key));
 
-          DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 1, operation, strlen(operation), SQLITE_TRANSIENT);
-          DT_DEBUG_SQLITE3_BIND_BLOB(stmt_upd_hist, 2, params, params_len, SQLITE_TRANSIENT);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 3, modversion);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 4, enabled);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 5, img->id);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 6, i);
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:snapshot_name", i);
+          snapshot_name = xmpData.findKey(Exiv2::XmpKey(key));
 
-          /* check if we got blendop from xmp */
-          unsigned char *blendop_params = NULL;
-          unsigned int blendop_size = 0;
-          if(blendop != xmpData.end() && blendop->size() > 0 && blendop->count () > i && blendop->toString(i).c_str() != NULL)
-          {
-            blendop_size = strlen(blendop->toString(i).c_str())/2;
-            blendop_params = (unsigned char *)malloc(blendop_size);
-            dt_exif_xmp_decode(blendop->toString(i).c_str(),blendop_params,strlen(blendop->toString(i).c_str()));
-            DT_DEBUG_SQLITE3_BIND_BLOB(stmt_upd_hist, 7, blendop_params, blendop_size, SQLITE_TRANSIENT);
-          }
-          else
-            sqlite3_bind_null(stmt_upd_hist, 7);
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_modversion", i);
+          ver = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_enabled", i);
+          en = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_operation", i);
+          op = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_params", i);
+          param = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendops_params", i);
+          blendop = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendop_version", i);
+          blendop_version = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:multi_priority", i);
+          multi_priority = xmpData.findKey(Exiv2::XmpKey(key));
+          snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:multi_name", i);
+          multi_name = xmpData.findKey(Exiv2::XmpKey(key)); 
 
-          /* check if we got blendop_version from xmp; if not assume 1 as default */
-          int blversion = 1;
-          if(blendop_version != xmpData.end() && blendop_version->count() > i)
-          {
-            blversion = blendop_version->toLong(i);
-          }
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 8, blversion);
+          //TODO: read name & snapshot num and insert it in the snapshots table
+          const char *name = snapshot_name->toString().c_str();
+          const int snap_num = snapshot_num->toLong();
 
-          /* multi instances */
-          int mprio = 0;
-          if (multi_priority != xmpData.end() && multi_priority->count() > i)  mprio = multi_priority->toLong(i);
-          DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 9, mprio);
-          if(multi_name != xmpData.end() && multi_name->size() > 0 &&
-              multi_name->count() > i && multi_name->toString(i).c_str() != NULL)
-          {
-            const char *mname = multi_name->toString(i).c_str();
-            DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 10, mname, strlen(mname), SQLITE_TRANSIENT);
-          }
-          else
-          {
-            const char *mname = " ";
-            DT_DEBUG_SQLITE3_BIND_TEXT(stmt_upd_hist, 10, mname, strlen(mname), SQLITE_TRANSIENT);
-          }
+          DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), 
+                                      "insert into snapshots (imgid, num, name) values (?1, ?2, ?3)",
+                                      -1, &stmt, NULL);
+          DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, img->id);
+          DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, snap_num);
+          DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 3, name, strlen(name), SQLITE_TRANSIENT); 
 
-
-          sqlite3_step (stmt_upd_hist);
-          free(params);
-          free(blendop_params);
-
-          sqlite3_reset(stmt_sel_num);
-          sqlite3_clear_bindings(stmt_sel_num);
-          sqlite3_reset(stmt_upd_hist);
-          sqlite3_clear_bindings(stmt_upd_hist);
+          _lib_exif_read_history (ver, en, op, param, blendop, blendop_version,
+                                  multi_priority, multi_name, xmpData, snap_num, img);
 
         }
-        sqlite3_finalize(stmt_sel_num);
-        sqlite3_finalize(stmt_ins_hist);
-        sqlite3_finalize(stmt_upd_hist);
       }
     }
   }
@@ -1810,16 +1894,18 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
   }
   sqlite3_finalize (stmt);
 
-  // history stack for snapshots:
+  // history stack for snapshots
   num = 1;
   int32_t snapshots = -1;
 
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                              "count (num) from snapshots where image_id = ?1",
+                              "select count(num) from snapshots where imgid = ?1",
                               -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
-  while (sqlite3_step(stmt) == SQLITE_ROW)
-    snapshots = sqlite3_column_int(stmt, 1);
+  if (sqlite3_step(stmt) == SQLITE_ROW)
+    snapshots = sqlite3_column_int(stmt, 0);
+
+  sqlite3_finalize(stmt);
 
   if (snapshots != -1)
   {
@@ -1828,25 +1914,35 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
     Exiv2::XmpTextValue tvs("");
     tvs.setXmpArrayType(Exiv2::XmpValue::xaSeq);
     xmpData.add(Exiv2::XmpKey("Xmp.darktable.snapshots"), &tvs);
+      
+    // reset tv
+    tvs.setXmpArrayType(Exiv2::XmpValue::xaNone);
+   
+    snprintf(key, 1024, "%d", snapshots); 
+    tvs.read(key);
+    xmpData.add(Exiv2::XmpKey("Xmp.darktable.snapshots_total"), &tvs);
+
+    tvs.read("");
+    tvs.setXmpArrayType(Exiv2::XmpValue::xaSeq);
 
     for (int i=0; i < snapshots; i++)
     {
-      int snapshot = i+1;
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_modversion[%d]", snapshot, num);
+      int snapshot = i + 1;
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_modversion", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_enabled[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_enabled", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_operation[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_operation", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_params[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_params", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:blendop_params[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendop_params", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:blendop_version[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendop_version", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:multi_priority[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:multi_priority", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
-      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:smulti_name[%d]", snapshot, num);
+      snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:multi_name", snapshot);
       xmpData.add(Exiv2::XmpKey(key), &tvs);
       
       // reset tv
@@ -1854,28 +1950,28 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
 
       DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                   "select imgid, num, module, operation, op_params, enabled, blendop_params, "
-                                  "blendop_version, multi_priority, multi_name from history where imgid = ?1, snapshot_num = ?2 order by num",
+                                  "blendop_version, multi_priority, multi_name from history where imgid = ?1 AND snapshot_num = ?2 order by num",
                                   -1, &stmt, NULL);
       DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
-      DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, i);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, snapshot);
       while(sqlite3_step(stmt) == SQLITE_ROW)
       {
         int32_t modversion = sqlite3_column_int(stmt, 2);
         snprintf(val, 2048, "%d", modversion);
         tvs.read(val);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_modversion[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_modversion[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
 
         int32_t enabled = sqlite3_column_int(stmt, 5);
         snprintf(val, 2048, "%d", enabled);
         tvs.read(val);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_enabled[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_enabled[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
 
         const char *op = (const char *)sqlite3_column_text(stmt, 3);
         if(!op) continue; // no op is fatal.
         tvs.read(op);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_operation[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_operation[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
 
         /* read and add history params */
@@ -1883,7 +1979,7 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
         char *vparams = (char *)malloc(2*len + 1);
         dt_exif_xmp_encode ((const unsigned char *)sqlite3_column_blob(stmt, 4), vparams, len);
         tvs.read(vparams);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:history_params[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:history_params[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
         free(vparams);
 
@@ -1894,7 +1990,7 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
         vparams = (char *)malloc(2*len + 1);
         dt_exif_xmp_encode ((const unsigned char *)blob, vparams, len);
         tvs.read(vparams);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:blendop_params[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendop_params[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
         free(vparams);
 
@@ -1902,14 +1998,14 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
         int32_t blversion = sqlite3_column_int(stmt, 7);
         snprintf(val, 2048, "%d", blversion);
         tvs.read(val);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:blendop_version[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:blendop_version[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
 
         /* read and add multi instances */
         int32_t mprio = sqlite3_column_int(stmt, 8);
         snprintf(val, 2048, "%d", mprio);
         tvs.read(val);
-        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/dt:multi_priority[%d]", i, num);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:multi_priority[%d]", snapshot, num);
         xmpData.add(Exiv2::XmpKey(key), &tvs);
         const char *mname = (const char *)sqlite3_column_text(stmt, 9);
         if(mname) tvs.read(mname);
@@ -1920,6 +2016,24 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
         num ++;
       }
       sqlite3_finalize (stmt);
+
+      DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                                  "select name from snapshots where imgid = ?1 AND num = ?2",
+                                  -1, &stmt, NULL);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, i);
+      
+      if(sqlite3_step(stmt) == SQLITE_ROW)
+      {
+        const char *name = (const char *)sqlite3_column_text(stmt, 0);
+        tvs.read(name);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:snapshot_name", i);
+        xmpData.add(Exiv2::XmpKey(key), &tvs);
+        snprintf(key, 1024, "%d", i);
+        tvs.read(key);
+        snprintf(key, 1024, "Xmp.darktable.snapshots[%d]/darktable:number", i);
+        xmpData.add(Exiv2::XmpKey(key), &tvs);
+      }
     }
   }
   g_free(tags);
