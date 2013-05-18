@@ -56,7 +56,8 @@ typedef struct dt_lib_snapshots_t
   uint32_t size;
 
   /* snapshots */
-  dt_lib_snapshot_t *snapshot;
+  //dt_lib_snapshot_t *snapshot;
+  GList *snapshot;
 
   /* snapshot cairo surface */
   cairo_surface_t *snapshot_image;
@@ -316,29 +317,44 @@ void gui_init(dt_lib_module_t *self)
   /*
    * initialize snapshots
    */
-  char wdname[32]= {0};
+  //char wdname[32]= {0};
   char localtmpdir[4096]= {0};
   dt_loc_get_tmp_dir (localtmpdir,4096);
 
-  for (long k=0; k<d->size; k++)
+  sqlite3_stmt *stmt;
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+                              "SELECT num,name FROM snapshots WHERE imgid = ?1",
+                              -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, daktable.develop->image_storage.id);
+
+  while (sqlite3_step(stmt) == SQLITE_ROW)
   {
+    int num = sqlite3_column_int(stmt, 0);
+    const char *name = sqlite3_column_text(stmt, 1);
+
     /* create snapshot button */
-    d->snapshot[k].button = dtgtk_togglebutton_new_with_label (wdname,NULL,CPF_STYLE_FLAT);
-    g_signal_connect(G_OBJECT ( d->snapshot[k].button), "clicked",
+    dt_lib_snapshot_t *snapshot = (dt_lib_snapshots_t *)g_malloc(sizeof(dt_lib_snapshot_t));
+    memset(snapshot,0,sizeof(dt_lib_snapshot_t)); 
+
+    snapshot->button = dtgtk_togglebutton_new_with_label (name,NULL,CPF_STYLE_FLAT);
+    
+    g_signal_connect(G_OBJECT ( d->snapshot->button), "clicked",
                      G_CALLBACK (_lib_snapshots_toggled_callback),
                      self);
 
     /* assign snapshot number to widget */
-    g_object_set_data(G_OBJECT(d->snapshot[k].button),"snapshot",(gpointer)(k+1));
+    g_object_set_data(G_OBJECT(snapshot->button),"snapshot",(gpointer)num);
 
     /* setup filename for snapshot */
-    snprintf(d->snapshot[k].filename, 512, "%s/dt_snapshot_%ld.png",localtmpdir,k);
+    /* FIXME: we have to recreate this file at some point */
+    snprintf(snapshot->filename, 512, "%s/dt_snapshot_%ld.png",localtmpdir,num);
 
     /* add button to snapshot box */
-    gtk_box_pack_start(GTK_BOX(d->snapshots_box),d->snapshot[k].button,TRUE,TRUE,0);
+    gtk_box_pack_start(GTK_BOX(d->snapshots_box),snapshot->button,TRUE,TRUE,0);
 
     /* prevent widget to show on external show all */
-    gtk_widget_set_no_show_all(d->snapshot[k].button, TRUE);
+    //gtk_widget_set_no_show_all(snapshot->button, TRUE);
+    d->snapshot = g_list_append(d->snapshot, snapshot);
   }
 
   /* add snapshot box and take snapshot button to widget ui*/
