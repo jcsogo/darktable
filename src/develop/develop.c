@@ -715,7 +715,7 @@ void dt_dev_write_history(dt_develop_t *dev)
   sqlite3_stmt *stmt;
 
   gboolean changed = FALSE;
-  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "delete from history where imgid = ?1", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "DELETE FROM history WHERE imgid = ?1 AND snapshot_num=-1", -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dev->image_storage.id);
   sqlite3_step(stmt);
   sqlite3_finalize (stmt);
@@ -740,9 +740,14 @@ void dt_dev_write_history(dt_develop_t *dev)
 
 void dt_dev_write_snapshot_history(dt_develop_t *dev, int snapshot)
 {
-  //sqlite3_stmt *stmt;
+  sqlite3_stmt *stmt;
 
   //gboolean changed = FALSE;
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "DELETE FROM history WHERE imgid = ?1 AND snapshot_num = ?2", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dev->image_storage.id);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, snapshot);
+  sqlite3_step(stmt);
+  sqlite3_finalize (stmt);
 
   GList *history = dev->history;
   for(int i=0; i<dev->history_end && history; i++)
