@@ -47,13 +47,13 @@ typedef struct dt_lib_snapshots_t
 {
   GtkWidget *snapshots_box;
 
-  uint32_t selected;
+  int selected;
 
   /* current active snapshots */
-  uint32_t num_snapshots;
+  int num_snapshots;
 
   /* size of snapshots */
-  uint32_t size;
+  int size;
 
   /* snapshots */
   //dt_lib_snapshot_t *snapshot;
@@ -268,14 +268,17 @@ int mouse_moved(dt_lib_module_t *self, double x, double y, double pressure, int 
   return 0;
 }
 
+
+
 void gui_reset(dt_lib_module_t *self)
 {
   dt_lib_snapshots_t *d=(dt_lib_snapshots_t *)self->data;
   d->num_snapshots = 0;
   d->snapshot_image = NULL;
 
-  for(uint32_t k=0; k<d->size; k++)
-    gtk_widget_hide(d->snapshot[k].button);
+  //for(uint32_t k=0; k<d->size; k++)
+  //  gtk_widget_hide(d->snapshot[k].button);
+  // FIXME: what should we do in this case? It is not the same if we are changing the image or if user clicks reset
 
   dt_control_queue_redraw_center();
 }
@@ -289,11 +292,12 @@ void gui_init(dt_lib_module_t *self)
 
   /* initialize snapshot storages */
   d->size = 4;
-  d->snapshot = (dt_lib_snapshot_t *)g_malloc(sizeof(dt_lib_snapshot_t)*d->size);
+  d->num_snapshots = 0;
+  //d->snapshot = (dt_lib_snapshot_t *)g_malloc(sizeof(dt_lib_snapshot_t)*d->size);
   d->vp_xpointer = 0.5;
   d->vp_ypointer = 0.5;
   d->vertical = TRUE;
-  memset(d->snapshot,0,sizeof(dt_lib_snapshot_t)*d->size);
+  //memset(d->snapshot,0,sizeof(dt_lib_snapshot_t)*d->size);
 
   /* initialize ui containers */
   self->widget = gtk_vbox_new(FALSE,2);
@@ -322,32 +326,34 @@ void gui_init(dt_lib_module_t *self)
   dt_loc_get_tmp_dir (localtmpdir,4096);
 
   sqlite3_stmt *stmt;
+  int imgid = darktable.develop->image_storage.id;
+
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "SELECT num,name FROM snapshots WHERE imgid = ?1",
                               -1, &stmt, NULL);
-  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, daktable.develop->image_storage.id);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
 
   while (sqlite3_step(stmt) == SQLITE_ROW)
   {
     int num = sqlite3_column_int(stmt, 0);
-    const char *name = sqlite3_column_text(stmt, 1);
+    gchar *name = (gchar *) sqlite3_column_text(stmt, 1);
 
     /* create snapshot button */
-    dt_lib_snapshot_t *snapshot = (dt_lib_snapshots_t *)g_malloc(sizeof(dt_lib_snapshot_t));
+    dt_lib_snapshot_t *snapshot = (dt_lib_snapshot_t *)g_malloc(sizeof(dt_lib_snapshot_t));
     memset(snapshot,0,sizeof(dt_lib_snapshot_t)); 
 
     snapshot->button = dtgtk_togglebutton_new_with_label (name,NULL,CPF_STYLE_FLAT);
     
-    g_signal_connect(G_OBJECT ( d->snapshot->button), "clicked",
+    g_signal_connect(G_OBJECT ( snapshot->button), "clicked",
                      G_CALLBACK (_lib_snapshots_toggled_callback),
                      self);
 
     /* assign snapshot number to widget */
-    g_object_set_data(G_OBJECT(snapshot->button),"snapshot",(gpointer)num);
+    g_object_set_data(G_OBJECT(snapshot->button),"snapshot",GINT_TO_POINTER(num));
 
     /* setup filename for snapshot */
     /* FIXME: we have to recreate this file at some point */
-    snprintf(snapshot->filename, 512, "%s/dt_snapshot_%ld.png",localtmpdir,num);
+    snprintf(snapshot->filename, 512, "%s/dt_snapshot_%d.png",localtmpdir,num);
 
     /* add button to snapshot box */
     gtk_box_pack_start(GTK_BOX(d->snapshots_box),snapshot->button,TRUE,TRUE,0);
@@ -355,6 +361,8 @@ void gui_init(dt_lib_module_t *self)
     /* prevent widget to show on external show all */
     //gtk_widget_set_no_show_all(snapshot->button, TRUE);
     d->snapshot = g_list_append(d->snapshot, snapshot);
+
+    d->num_snapshots++;
   }
 
   /* add snapshot box and take snapshot button to widget ui*/
@@ -369,9 +377,10 @@ void gui_init(dt_lib_module_t *self)
 
 void gui_cleanup(dt_lib_module_t *self)
 {
-  dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
+  //dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
 
-  g_free(d->snapshot);
+  // FIXME: Free the list properly
+  //g_free(d->snapshot);
 
   g_free(self->data);
   self->data = NULL;
@@ -409,9 +418,10 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
 
   /* backup last snapshot slot */
-  dt_lib_snapshot_t last = d->snapshot[d->size-1];
+  //dt_lib_snapshot_t last = d->snapshot[d->size-1];
 
   /* rotate slots down to make room for new one on top */
+  /*
   for (int k = d->size-1; k > 0; k--)
   {
     GtkWidget *b = d->snapshot[k].button;
@@ -420,12 +430,16 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
     gtk_button_set_label(GTK_BUTTON(d->snapshot[k].button),
                          gtk_button_get_label(GTK_BUTTON(d->snapshot[k-1].button)));
   }
+  */
 
   /* update top slot with new snapshot */
+  dt_lib_snapshot_t *snapshot = (dt_lib_snapshot_t *)g_malloc(sizeof(dt_lib_snapshot_t));
+  memset(snapshot,0,sizeof(dt_lib_snapshot_t));
+
   char label[64];
-  GtkWidget *b = d->snapshot[0].button;
-  d->snapshot[0] = last;
-  d->snapshot[0].button = b;
+  //GtkWidget *b = snapshot->button;
+  //d->snapshot[0] = last;
+  //d->snapshot[0].button = b;
   const gchar *name = _("original");
   if (darktable.develop->history_end > 0)
   {
@@ -437,30 +451,44 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
       name = _("unknown");
   }
   g_snprintf(label,64,"%s (%d)", name, darktable.develop->history_end);
-  gtk_button_set_label(GTK_BUTTON(d->snapshot[0].button), label);
+  gtk_button_set_label(GTK_BUTTON(snapshot->button), label);
 
-  dt_lib_snapshot_t *s = d->snapshot + 0;
-  DT_CTL_GET_GLOBAL (s->zoom_y, dev_zoom_y);
-  DT_CTL_GET_GLOBAL (s->zoom_x, dev_zoom_x);
-  DT_CTL_GET_GLOBAL (s->zoom, dev_zoom);
-  DT_CTL_GET_GLOBAL (s->closeup, dev_closeup);
-  DT_CTL_GET_GLOBAL (s->zoom_scale, dev_zoom_scale);
+  //dt_lib_snapshot_t *s = d->snapshot + 0;
+  DT_CTL_GET_GLOBAL (snapshot->zoom_y, dev_zoom_y);
+  DT_CTL_GET_GLOBAL (snapshot->zoom_x, dev_zoom_x);
+  DT_CTL_GET_GLOBAL (snapshot->zoom, dev_zoom);
+  DT_CTL_GET_GLOBAL (snapshot->closeup, dev_closeup);
+  DT_CTL_GET_GLOBAL (snapshot->zoom_scale, dev_zoom_scale);
 
   /* update slots used */
-  if (d->num_snapshots != d->size)
-    d->num_snapshots++;
+  //if (d->num_snapshots != d->size)
+  d->num_snapshots++;
 
   /* show active snapshot slots */
-  for (uint32_t k=0; k < d->num_snapshots; k++)
-    gtk_widget_show(d->snapshot[k].button);
+  //for (uint32_t k=0; k < d->num_snapshots; k++)
+  //  gtk_widget_show(d->snapshot[k].button);
 
   /* request a new snapshot for top slot */
-  dt_dev_snapshot_request(darktable.develop, (const char *)&d->snapshot[0].filename);
+  dt_dev_snapshot_request(darktable.develop, (const char *)&snapshot->filename);
 
   /* write snapshot name and history in the db */
   _lib_snapshots_write_name (name,  d->num_snapshots, darktable.develop->image_storage.id );
   dt_dev_write_snapshot_history(darktable.develop, d->num_snapshots);
+  
+  /* add button to snapshot box */
+  gtk_box_pack_start(GTK_BOX(d->snapshots_box),snapshot->button,TRUE,TRUE,0);
 
+  d->snapshot = g_list_append(d->snapshot, snapshot);
+}
+
+static void
+_lib_toggle_snapshots_buttons (gpointer data, gpointer user_data)
+{
+  dt_lib_snapshot_t *snapshot = (dt_lib_snapshot_t *)data;
+  GtkWidget *button = (GtkWidget *)user_data;
+
+  if (GTK_WIDGET(button) != snapshot->button)
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON(snapshot->button), FALSE);
 }
 
 static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer user_data)
@@ -468,7 +496,7 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
   dt_lib_module_t *self = (dt_lib_module_t*)user_data;
   dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
   /* get current snapshot index */
-  long which = (long)g_object_get_data(G_OBJECT(widget),"snapshot");
+  int which = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget),"snapshot"));
 
   /* free current snapshot image if exists */
   if (d->snapshot_image)
@@ -481,13 +509,11 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
   if (gtk_toggle_button_get_active(widget))
   {
     /* lets inactivate all togglebuttons except for self */
-    for(uint32_t k=0; k<d->size; k++)
-      if(GTK_WIDGET(widget) != d->snapshot[k].button)
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(d->snapshot[k].button), FALSE);
+    g_list_foreach (d->snapshot, (GFunc)_lib_toggle_snapshots_buttons, (gpointer) widget); 
 
     /* setup snapshot */
     d->selected = which;
-    dt_lib_snapshot_t *s = d->snapshot + (which-1);
+    dt_lib_snapshot_t *s = g_list_nth_data(d->snapshot, which-1);
     DT_CTL_SET_GLOBAL(dev_zoom_y,     s->zoom_y);
     DT_CTL_SET_GLOBAL(dev_zoom_x,     s->zoom_x);
     DT_CTL_SET_GLOBAL(dev_zoom,       s->zoom);
@@ -497,7 +523,6 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
     dt_dev_invalidate(darktable.develop);
 
     d->snapshot_image = cairo_image_surface_create_from_png(s->filename);
-
   }
 
   /* redraw center view */
