@@ -92,6 +92,21 @@ typedef struct dt_image_t
   char exif_lens[52];
   char exif_datetime_taken[20];
   char filename[DT_MAX_FILENAME_LEN];
+  char full_path[DT_MAX_PATH_LEN];
+
+  // metadata
+  GList *title;
+  GList *description;
+  GList *rights;
+  GList *creator;
+  GList *publisher;
+
+  // tags
+  uint32_t tags_num;
+  GList *taglist;
+
+  // altered
+  gboolean altered;
 
   // common stuff
   int32_t width, height;

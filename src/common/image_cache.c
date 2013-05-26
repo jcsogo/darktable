@@ -36,6 +36,7 @@ dt_image_cache_allocate(void *data, const uint32_t key, int32_t *cost, void **bu
 
   dt_image_t *img = c->images + slot;
   // load stuff from db and store in cache:
+  // exif
   char *str;
   sqlite3_stmt *stmt;
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "select id, group_id, film_id, width, height, filename, maker, model, lens, exposure, aperture, iso, focal_length, datetime_taken, flags, crop, orientation, focus_distance, raw_parameters, longitude, latitude, color_matrix, colorspace from images where id = ?1", -1, &stmt, NULL);
@@ -87,6 +88,23 @@ dt_image_cache_allocate(void *data, const uint32_t key, int32_t *cost, void **bu
     img->profile = NULL;
     img->profile_size = 0;
     img->colorspace = sqlite3_column_int(stmt, 22);
+
+    // metadata
+    img->title = dt_metadata_get(key, "Xmp.dc.title", NULL);
+    img->description = dt_metadata_get(key, "Xmp.dc.description", NULL);
+    img->rights = dt_metadata_get(key, "Xmp.dc.rights", NULL);
+    img->creator = dt_metadata_get(key, "Xmp.dc.creator", NULL);
+    img->publisher = dt_metadata_get(key, "Xmp.dc.publisher", NULL);
+
+    // tags
+    img->tags_num = dt_tag_get_attached(key, img->taglist);
+
+    // altered
+    img->altered = dt_image_altered(key);
+
+    // full path
+    dt_image_full_path(key, img->full_path, DT_MAX_PATH_LEN);
+
 
     // buffer size?
     if(img->flags & DT_IMAGE_LDR)
