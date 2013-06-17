@@ -794,7 +794,7 @@ auto_apply_presets(dt_develop_t *dev)
   const int legacy = (image->flags & DT_IMAGE_NO_LEGACY_PRESETS) ? 0 : 1;
   char query[1024];
   snprintf(query, 1024,
-      "insert into memory.history select ?1, 0, op_version, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name "
+      "insert into memory.history select ?1, 0, op_version, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name, -1 "
       "from %s where autoapply=1 and "
                               "?2 like model and ?3 like maker and ?4 like lens and "
                               "?5 between iso_min and iso_max and "
@@ -844,7 +844,7 @@ auto_apply_presets(dt_develop_t *dev)
         sqlite3_finalize(stmt);
         DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
             "insert into history select imgid, rowid-1, module, operation, op_params, enabled, "
-            "blendop_params, blendop_version, multi_priority, multi_name from memory.history",
+            "blendop_params, blendop_version, multi_priority, multi_name, snapshot_num from memory.history",
           -1, &stmt, NULL);
         sqlite3_step(stmt);
       }
