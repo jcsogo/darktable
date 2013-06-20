@@ -451,7 +451,8 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
       name = _("unknown");
   }
   g_snprintf(label,64,"%s (%d)", name, darktable.develop->history_end);
-  gtk_button_set_label(GTK_BUTTON(snapshot->button), label);
+  snapshot->button = gtk_toggle_button_new_with_label(label);
+  g_signal_connect(G_OBJECT(snapshot->button), "toggled", G_CALLBACK(_lib_snapshots_split_button_toggled_callback), self);
 
   //dt_lib_snapshot_t *s = d->snapshot + 0;
   DT_CTL_GET_GLOBAL (snapshot->zoom_y, dev_zoom_y);
@@ -469,7 +470,7 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   //  gtk_widget_show(d->snapshot[k].button);
 
   /* request a new snapshot for top slot */
-  dt_dev_snapshot_request(darktable.develop, (const char *)&snapshot->filename);
+  /* dt_dev_snapshot_request(darktable.develop, (const char *)&snapshot->filename); */
 
   /* write snapshot name and history in the db */
   _lib_snapshots_write_name (name,  d->num_snapshots, darktable.develop->image_storage.id );
@@ -477,6 +478,7 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   
   /* add button to snapshot box */
   gtk_box_pack_start(GTK_BOX(d->snapshots_box),snapshot->button,TRUE,TRUE,0);
+  gtk_widget_show(GTK_WIDGET(snapshot->button));
 
   d->snapshot = g_list_append(d->snapshot, snapshot);
 }
