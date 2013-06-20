@@ -505,6 +505,10 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
     d->snapshot_image = NULL;
   }
 
+  dt_view_manager_t *vm = darktable.view_manager;
+
+  dt_view_t *v = vm->view + vm->current_view;
+
   /* check if snapshot is activated */
   if (gtk_toggle_button_get_active(widget))
   {
@@ -523,6 +527,12 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
     dt_dev_invalidate(darktable.develop);
 
     d->snapshot_image = cairo_image_surface_create_from_png(s->filename);
+
+    v->call_expose = FALSE;
+  }
+  else
+  {
+    v->call_expose = TRUE;
   }
 
   /* redraw center view */

@@ -125,6 +125,8 @@ void init(dt_view_t *self)
 
   dt_map_t *lib = (dt_map_t *)self->data;
 
+  self->call_expose = TRUE;
+
   if(darktable.gui)
   {
     lib->pin = init_pin();

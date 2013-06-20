@@ -412,7 +412,8 @@ void dt_view_manager_expose (dt_view_manager_t *vm, cairo_t *cr, int32_t width, 
       px = 10000.0;
       py = -1.0;
     }
-    v->expose(v, cr, v->width, v->height, px, py);
+    if (v->call_expose == TRUE)
+      v->expose(v, cr, v->width, v->height, px, py);
 
     cairo_restore(cr);
     /* expose plugins */

@@ -57,6 +57,8 @@ typedef struct dt_view_t
   void *data;
   // width and height of allocation
   uint32_t width, height;
+  // wether we have to use expose() or other module will take care of that
+  gboolean call_expose;
   // scroll bar control
   float vscroll_size, vscroll_viewport_size, vscroll_pos;
   float hscroll_size, hscroll_viewport_size, hscroll_pos;

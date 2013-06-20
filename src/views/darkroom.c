@@ -89,6 +89,8 @@ init(dt_view_t *self)
 {
   self->data = malloc(sizeof(dt_develop_t));
   dt_dev_init((dt_develop_t *)self->data, 1);
+
+  self->call_expose = TRUE;
 }
 
 uint32_t view(dt_view_t *self)

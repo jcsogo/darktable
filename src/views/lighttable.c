@@ -308,6 +308,8 @@ void init(dt_view_t *self)
   dt_library_t *lib = (dt_library_t *)self->data;
   memset(self->data,0,sizeof(dt_library_t));
 
+  self->call_expose = TRUE;
+
   darktable.view_manager->proxy.lighttable.set_position = _set_position;
   darktable.view_manager->proxy.lighttable.get_position = _get_position;
   darktable.view_manager->proxy.lighttable.get_images_in_row = _get_images_in_row;

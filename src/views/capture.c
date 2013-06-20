@@ -146,6 +146,8 @@ void init(dt_view_t *self)
   memset(self->data,0,sizeof(dt_capture_t));
   dt_capture_t *lib = (dt_capture_t *)self->data;
 
+  self->call_expose = TRUE;
+
   // initialize capture data struct
   const int i = dt_conf_get_int("plugins/capture/mode");
   lib->mode = i;
