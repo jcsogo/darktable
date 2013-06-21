@@ -335,7 +335,8 @@ void gui_init(dt_lib_module_t *self)
 
   while (sqlite3_step(stmt) == SQLITE_ROW)
   {
-    int num = sqlite3_column_int(stmt, 0);
+    //int num = sqlite3_column_int(stmt, 0);
+    d->num_snapshots++;
     gchar *name = (gchar *) sqlite3_column_text(stmt, 1);
 
     /* create snapshot button */
@@ -349,7 +350,7 @@ void gui_init(dt_lib_module_t *self)
                      self);
 
     /* assign snapshot number to widget */
-    g_object_set_data(G_OBJECT(snapshot->button),"snapshot",GINT_TO_POINTER(num));
+    g_object_set_data(G_OBJECT(snapshot->button),"snapshot",GINT_TO_POINTER(d->num_snapshots));
 
     /* setup filename for snapshot */
     /* FIXME: we have to recreate this file at some point */
@@ -361,8 +362,6 @@ void gui_init(dt_lib_module_t *self)
     /* prevent widget to show on external show all */
     //gtk_widget_set_no_show_all(snapshot->button, TRUE);
     d->snapshot = g_list_append(d->snapshot, snapshot);
-
-    d->num_snapshots++;
   }
 
   /* add snapshot box and take snapshot button to widget ui*/
@@ -452,7 +451,13 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   }
   g_snprintf(label,64,"%s (%d)", name, darktable.develop->history_end);
   snapshot->button = gtk_toggle_button_new_with_label(label);
-  g_signal_connect(G_OBJECT(snapshot->button), "toggled", G_CALLBACK(_lib_snapshots_split_button_toggled_callback), self);
+  g_signal_connect(G_OBJECT(snapshot->button), "toggled", G_CALLBACK(_lib_snapshots_toggled_callback), self);
+  
+  /* update the snapshots count */
+  d->num_snapshots++;
+    
+  /* assign snapshot number to widget */
+  g_object_set_data(G_OBJECT(snapshot->button),"snapshot",GINT_TO_POINTER(d->num_snapshots));
 
   //dt_lib_snapshot_t *s = d->snapshot + 0;
   DT_CTL_GET_GLOBAL (snapshot->zoom_y, dev_zoom_y);
@@ -460,10 +465,6 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
   DT_CTL_GET_GLOBAL (snapshot->zoom, dev_zoom);
   DT_CTL_GET_GLOBAL (snapshot->closeup, dev_closeup);
   DT_CTL_GET_GLOBAL (snapshot->zoom_scale, dev_zoom_scale);
-
-  /* update slots used */
-  //if (d->num_snapshots != d->size)
-  d->num_snapshots++;
 
   /* show active snapshot slots */
   //for (uint32_t k=0; k < d->num_snapshots; k++)
