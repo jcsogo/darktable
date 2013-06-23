@@ -173,6 +173,7 @@ static GtkWidget *_lib_history_create_button(dt_lib_module_t *self,long int num,
 
 static void _lib_history_change_callback(gpointer instance, gpointer user_data)
 {
+  printf("HISTORY CHANGED CALLBACK!!!\n");
   dt_lib_module_t *self = (dt_lib_module_t *)user_data;
   dt_lib_history_t *d = (dt_lib_history_t *)self->data;
 

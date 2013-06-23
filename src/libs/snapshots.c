@@ -73,6 +73,10 @@ typedef struct dt_lib_snapshots_t
 
   /* Overlay or split mode? */
   gboolean split;
+  
+  /* Cache for bufer... FIXME: should they be here or in dt_snapshot_t?*/
+  uint8_t *image_backbuf, *snapshot_backbuf;
+  int image_backbuf_size, snapshot_backbuf_size; 
 
 }
 dt_lib_snapshots_t;
@@ -119,10 +123,235 @@ void connect_key_accels(dt_lib_module_t *self)
 void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t height, int32_t pointerx, int32_t pointery)
 {
   dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
+  
+  printf("SNAPSHOTS: post expose called - selected: %d\n", d->selected);
+
+  // FIXME: check we are starting to count in 1 everywhere
+  if (d->selected < 1) return;
+
+  // switch to know what are we processing in each expose event
+  static int process_snapshot = 0;
+
   // convert to image coordinates:
   double x_start = width  > darktable.thumbnail_width  ? (width - darktable.thumbnail_width) *.5f:0;
   double y_start = height > darktable.thumbnail_height ? (height- darktable.thumbnail_height)*.5f:0;
 
+  dt_pthread_mutex_t *mutex = NULL;
+  int wd, ht, stride, closeup;
+  int32_t zoom;
+  float zoom_x, zoom_y;
+  DT_CTL_GET_GLOBAL(zoom_y, dev_zoom_y);
+  DT_CTL_GET_GLOBAL(zoom_x, dev_zoom_x);
+  DT_CTL_GET_GLOBAL(zoom, dev_zoom);
+  DT_CTL_GET_GLOBAL(closeup, dev_closeup);
+  static cairo_surface_t *image_surface = NULL;
+  static int image_surface_width = 0, image_surface_height = 0, image_surface_imgid = -1;
+  
+  static float roi_hash_old = -1.0f;
+  // compute patented dreggn hash so we don't need to check all values:
+  const float roi_hash = width + 7.0f*height + 23.0f*zoom + 42.0f*zoom_x + 91.0f*zoom_y + 666.0f*zoom;
+
+  dt_develop_t *dev = darktable.develop;
+
+  if(image_surface_width != width || image_surface_height != height || image_surface == NULL)
+  {
+    // create double-buffered image to draw on, to make modules draw more fluently.
+    image_surface_width = width;
+    image_surface_height = height;
+    if(image_surface) cairo_surface_destroy(image_surface);
+    image_surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
+    image_surface_imgid = -1; // invalidate old stuff
+  }
+  cairo_surface_t *surface, *surface_snapshot;
+  cairo_t *cr = cairo_create(image_surface);
+  
+  wd = dev->pipe->backbuf_width;
+  ht = dev->pipe->backbuf_height;
+  
+  printf("Height: %d, Width: %d\n Pipe: H %d - W %d\n", height, width, ht, wd);
+  
+  stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
+
+  process_snapshot++;
+  printf ("We are in the loop: state is %d\n", process_snapshot);
+
+  if((dev->image_dirty && process_snapshot == 1)|| dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  {
+    printf("Processing original image\n");
+    dt_dev_process_image(dev);
+    printf("Original is dirty: %d\n", dev->image_dirty);
+    return;
+  }
+  else if (d->image_backbuf == NULL)
+  {
+    printf ("creating ORIGINAL image surface\n");
+    //surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    d->image_backbuf_size = dev->pipe->backbuf_size;
+    d->image_backbuf = malloc(sizeof(uint8_t)*d->image_backbuf_size);
+    memcpy (d->image_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
+  }
+
+  // Snapshot
+  if(process_snapshot == 2 || dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  {
+    printf("Processing SNAPSHOT image\n");
+    dt_dev_clear_history_items(dev);
+    dt_dev_read_snapshot_history(dev, d->selected);
+    dt_dev_process_image(dev);
+    printf("SNAPHOT is dirty: %d\n", dev->image_dirty);
+    return;
+  }
+  else if (d->snapshot_backbuf == NULL)
+  {
+    printf("creating SNAPSHOT image surface\n");
+    d->snapshot_backbuf_size = dev->pipe->backbuf_size;
+    d->snapshot_backbuf = malloc(sizeof(uint8_t)*d->snapshot_backbuf_size);
+    memcpy (d->snapshot_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
+    //surface_snapshot = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+  }
+  else
+    process_snapshot = 0;
+
+  
+  surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+  surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+
+
+  
+  // FIXME: This is only a snippet
+  // The first part of the code can be shared with darktable.c
+  // Draw center view
+  printf ("Timestamps: Pipe - %d -- Preview - %d\n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp);
+  if(!dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
+  {
+    roi_hash_old = roi_hash;
+    mutex = &dev->pipe->backbuf_mutex;
+    dt_pthread_mutex_lock(mutex);
+
+    cairo_save(cr);
+    cairo_set_source_rgb (cr, .2, .2, .2);
+    cairo_paint(cr);
+    cairo_restore(cr);
+    
+    cairo_save(cr);
+    cairo_translate(cr, .5f*(width-wd), .5f*(height-ht));
+    cairo_rectangle(cr, 0, 0, .5f*wd, ht);
+    cairo_clip_preserve(cr);
+    cairo_set_source_surface (cr, surface, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
+    cairo_fill_preserve(cr);
+    cairo_set_line_width(cr, 1.0);
+    cairo_set_source_rgb (cr, .3, .3, .3);
+    cairo_stroke (cr);
+    cairo_surface_destroy (surface);
+    cairo_restore(cr);
+    
+    cairo_save(cr);
+    //cairo_set_source_rgb (cr, .2, .2, .2);
+    //cairo_paint(cr);
+    cairo_translate(cr, .5f*(width-wd), .5f*(height-ht));
+    cairo_rectangle(cr, .5f*wd, 0, .5f*wd, ht);
+    cairo_clip_preserve(cr);
+    cairo_set_source_surface (cr, surface_snapshot, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
+    cairo_fill_preserve(cr);
+    cairo_set_line_width(cr, 10.0);
+    cairo_set_source_rgb (cr, .3, .3, .3);
+    cairo_stroke (cr);
+    cairo_surface_destroy (surface_snapshot);
+    cairo_restore(cr);
+
+    dt_pthread_mutex_unlock(mutex);
+    image_surface_imgid = dev->image_storage.id;
+  }
+  else if(!dev->preview_dirty && (roi_hash != roi_hash_old))
+  {
+    printf("snapshots: else_if\n");
+  }
+
+#if 0
+  if(!dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
+  {
+    // draw image
+    roi_hash_old = roi_hash;
+    mutex = &dev->pipe->backbuf_mutex;
+    dt_pthread_mutex_lock(mutex);
+    wd = dev->pipe->backbuf_width;
+    ht = dev->pipe->backbuf_height;
+    stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
+    surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    //cairo_set_source_rgb (cr, .2, .2, .2);
+    cairo_set_source_rgb (cr, .1, .8, .2);
+    cairo_paint(cr);
+    cairo_translate(cr, .5f*(width-wd), .5f*(height-ht));
+#if 0
+    if(closeup)
+    {
+      const float closeup_scale = 2.0;
+      cairo_scale(cr, closeup_scale, closeup_scale);
+      float boxw = 1, boxh = 1, zx0 = zoom_x, zy0 = zoom_y, zx1 = zoom_x, zy1 = zoom_y, zxm = -1.0, zym = -1.0;
+      dt_dev_check_zoom_bounds(dev, &zx0, &zy0, zoom, 0, &boxw, &boxh);
+      dt_dev_check_zoom_bounds(dev, &zx1, &zy1, zoom, 1, &boxw, &boxh);
+      dt_dev_check_zoom_bounds(dev, &zxm, &zym, zoom, 1, &boxw, &boxh);
+      const float fx = 1.0 - fmaxf(0.0, (zx0 - zx1)/(zx0 - zxm)), fy = 1.0 - fmaxf(0.0, (zy0 - zy1)/(zy0 - zym));
+      cairo_translate(cr, -wd/(2.0*closeup_scale) * fx, -ht/(2.0*closeup_scale) * fy);
+    }
+#endif
+    cairo_rectangle(cr, 0, 0, wd, ht);
+    cairo_set_source_surface (cr, surface, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
+    cairo_fill_preserve(cr);
+    cairo_set_line_width(cr, 1.0);
+    cairo_set_source_rgb (cr, .3, .3, .3);
+    cairo_stroke(cr);
+    cairo_surface_destroy (surface);
+    dt_pthread_mutex_unlock(mutex);
+    image_surface_imgid = dev->image_storage.id;
+  }
+  else
+  {
+    roi_hash_old = roi_hash;
+    mutex = &dev->preview_pipe->backbuf_mutex;
+    dt_pthread_mutex_lock(mutex);
+
+    wd = dev->preview_pipe->backbuf_width;
+    ht = dev->preview_pipe->backbuf_height;
+    float zoom_scale = dt_dev_get_zoom_scale(dev, zoom, closeup ? 2 : 1, 1);
+    cairo_set_source_rgb (cr, .2, .2, .2);
+    cairo_paint(cr);
+    cairo_rectangle(cr, 0, 0, width, height);
+    cairo_clip(cr);
+    stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
+    surface = cairo_image_surface_create_for_data (dev->preview_pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    cairo_translate(cr, width/2.0, height/2.0f);
+    cairo_scale(cr, zoom_scale, zoom_scale);
+    cairo_translate(cr, -.5f*wd-zoom_x*wd, -.5f*ht-zoom_y*ht);
+    // avoid to draw the 1px garbage that sometimes shows up in the preview :(
+    cairo_rectangle(cr, 0, 0, wd-1, ht-1);
+    cairo_set_source_surface (cr, surface, 0, 0);
+    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
+    cairo_fill(cr);
+    cairo_surface_destroy (surface);
+    dt_pthread_mutex_unlock(mutex);
+    image_surface_imgid = dev->image_storage.id;
+  }
+#endif
+
+  cairo_save(cri);
+  if(image_surface_imgid == dev->image_storage.id)
+  {
+    cairo_destroy(cr);
+    cairo_set_source_surface(cri, image_surface, 0, 0);
+    cairo_paint(cri);
+  }
+  cairo_restore(cri);
+
+  if (roi_hash_old && closeup)
+  {
+    printf("Hello %d\n", image_surface_imgid);
+  }
+
+#if 0
   if(d->snapshot_image && d->split == TRUE)
   {
     d->vp_width = width;
@@ -180,6 +409,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     cairo_rectangle(cri,0,0,width,height);
     cairo_fill(cri);
   }
+#endif
 }
 
 int button_released(struct dt_lib_module_t *self, double x, double y, int which, uint32_t state)
@@ -300,6 +530,8 @@ void gui_init(dt_lib_module_t *self)
   d->vertical = TRUE;
   //memset(d->snapshot,0,sizeof(dt_lib_snapshot_t)*d->size);
 
+  d->image_backbuf = d->snapshot_backbuf = NULL;
+
   /* initialize ui containers */
   self->widget = gtk_vbox_new(FALSE,2);
   d->snapshots_box = gtk_vbox_new(FALSE,0);
@@ -355,7 +587,7 @@ void gui_init(dt_lib_module_t *self)
 
     /* setup filename for snapshot */
     /* FIXME: we have to recreate this file at some point */
-    snprintf(snapshot->filename, 512, "%s/dt_snapshot_%d.png",localtmpdir,num);
+    snprintf(snapshot->filename, 512, "%s/dt_snapshot_%d.png",localtmpdir,d->num_snapshots);
 
     /* add button to snapshot box */
     gtk_box_pack_start(GTK_BOX(d->snapshots_box),snapshot->button,TRUE,TRUE,0);
@@ -508,10 +740,22 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
     cairo_surface_destroy(d->snapshot_image);
     d->snapshot_image = NULL;
   }
+  if (d->image_backbuf)
+  {
+    g_free(d->image_backbuf);
+    d->image_backbuf = NULL;
+  }
+  if (d->snapshot_backbuf)
+  {
+    g_free(d->snapshot_backbuf);
+    d->snapshot_backbuf = NULL;
+  }
 
   dt_view_manager_t *vm = darktable.view_manager;
 
   dt_view_t *v = vm->view + vm->current_view;
+
+  dt_develop_t *dev = darktable.develop;
 
   /* check if snapshot is activated */
   if (gtk_toggle_button_get_active(widget))
@@ -537,10 +781,16 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
   else
   {
     v->call_expose = TRUE;
+    d->selected = -1;
+    dt_dev_clear_history_items(dev);
+    dt_dev_read_history(dev);
+    // FIXME: there is an improvement here... we can inject back the old
+    // buffer and set the image as not dirty, so it doesn't need to be computed again
   }
+    
+    /* redraw center view */
+    dt_control_queue_redraw_center();
 
-  /* redraw center view */
-  dt_control_queue_redraw_center();
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

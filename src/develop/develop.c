@@ -597,9 +597,83 @@ void dt_dev_add_history_item(dt_develop_t *dev, dt_iop_module_t *module, gboolea
   }
 }
 
-void dt_dev_reload_history_items(dt_develop_t *dev)
+static void _pop_history_items_helper(dt_develop_t *dev, int32_t cnt)
 {
-  dt_dev_pop_history_items(dev, 0);
+  // printf("dev popping all history items >= %d\n", cnt);
+  dev->history_end = cnt;
+  // reset gui params for all modules
+  GList *modules = dev->iop;
+  while(modules)
+  {
+    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
+    memcpy(module->params, module->default_params, module->params_size);
+    memcpy(module->blend_params, module->default_blendop_params,sizeof(dt_develop_blend_params_t));
+    module->enabled = module->default_enabled;
+    modules = g_list_next(modules);
+  }
+  // go through history and set gui params
+  GList *history = dev->history;
+  for(int i=0; i<cnt && history; i++)
+  {
+    dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
+    memcpy(hist->module->params, hist->params, hist->module->params_size);
+    memcpy(hist->module->blend_params, hist->blend_params, sizeof(dt_develop_blend_params_t));
+
+    hist->module->enabled = hist->enabled;
+    history = g_list_next(history);
+  }
+  // update all gui modules
+  modules = dev->iop;
+  while(modules)
+  {
+    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
+    dt_iop_gui_update(module);
+    modules = g_list_next(modules);
+  }
+}
+
+static void _pop_history_items_helper1(dt_develop_t *dev, int32_t cnt)
+{
+  // printf("dev popping all history items >= %d\n", cnt);
+  dev->history_end = cnt;
+  // reset gui params for all modules
+  GList *modules = dev->iop;
+  while(modules)
+  {
+    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
+    memcpy(module->params, module->default_params, module->params_size);
+    memcpy(module->blend_params, module->default_blendop_params,sizeof(dt_develop_blend_params_t));
+    module->enabled = module->default_enabled;
+    modules = g_list_next(modules);
+  }
+  // go through history and set gui params
+  GList *history = dev->history;
+  for(int i=0; i<cnt && history; i++)
+  {
+    dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
+    memcpy(hist->module->params, hist->params, hist->module->params_size);
+    memcpy(hist->module->blend_params, hist->blend_params, sizeof(dt_develop_blend_params_t));
+
+    hist->module->enabled = hist->enabled;
+    history = g_list_next(history);
+  }
+  // update all gui modules
+#if 0
+  modules = dev->iop;
+  while(modules)
+  {
+    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
+    dt_iop_gui_update(module);
+    modules = g_list_next(modules);
+  }
+#endif
+}
+
+void dt_dev_clear_history_items(dt_develop_t *dev)
+{
+  dt_pthread_mutex_lock(&dev->history_mutex);
+
+  _pop_history_items_helper1(dev, 0);
   // remove unused history items:
   GList *history = g_list_nth(dev->history, dev->history_end);
   while(history)
@@ -612,6 +686,12 @@ void dt_dev_reload_history_items(dt_develop_t *dev)
     dev->history = g_list_delete_link(dev->history, history);
     history = next;
   }
+  dt_pthread_mutex_unlock(&dev->history_mutex);
+}
+
+void dt_dev_reload_history_items(dt_develop_t *dev)
+{
+  dt_dev_clear_history_items(dev);
   dt_dev_read_history(dev);
 
   //we have to add new module instances first
@@ -667,41 +747,13 @@ void dt_dev_reload_history_items(dt_develop_t *dev)
   dt_dev_pop_history_items(dev, dev->history_end);
 }
 
+
 void dt_dev_pop_history_items(dt_develop_t *dev, int32_t cnt)
 {
-  // printf("dev popping all history items >= %d\n", cnt);
   dt_pthread_mutex_lock(&dev->history_mutex);
   darktable.gui->reset = 1;
-  dev->history_end = cnt;
-  // reset gui params for all modules
-  GList *modules = dev->iop;
-  while(modules)
-  {
-    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
-    memcpy(module->params, module->default_params, module->params_size);
-    memcpy(module->blend_params, module->default_blendop_params,sizeof(dt_develop_blend_params_t));
-    module->enabled = module->default_enabled;
-    modules = g_list_next(modules);
-  }
-  // go through history and set gui params
-  GList *history = dev->history;
-  for(int i=0; i<cnt && history; i++)
-  {
-    dt_dev_history_item_t *hist = (dt_dev_history_item_t *)(history->data);
-    memcpy(hist->module->params, hist->params, hist->module->params_size);
-    memcpy(hist->module->blend_params, hist->blend_params, sizeof(dt_develop_blend_params_t));
+  _pop_history_items_helper(dev, cnt);
 
-    hist->module->enabled = hist->enabled;
-    history = g_list_next(history);
-  }
-  // update all gui modules
-  modules = dev->iop;
-  while(modules)
-  {
-    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
-    dt_iop_gui_update(module);
-    modules = g_list_next(modules);
-  }
   dev->pipe->changed |= DT_DEV_PIPE_SYNCH;
   dev->preview_pipe->changed |= DT_DEV_PIPE_SYNCH; // again, fixed topology for now.
   darktable.gui->reset = 0;
@@ -866,8 +918,165 @@ auto_apply_presets(dt_develop_t *dev)
 
 void dt_dev_read_snapshot_history(dt_develop_t *dev, int snapshot)
 {
-  // TODO: Fill this in
+  if(dev->image_storage.id <= 0) return;
+  if(!dev->iop) return;
+
+  // maybe prepend auto-presets to history before loading it:
+  //auto_apply_presets(dev);
+
+  sqlite3_stmt *stmt;
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
+      "select imgid, num, module, operation, op_params, enabled, blendop_params, blendop_version, multi_priority, multi_name from history where imgid = ?1 and snapshot_num = ?2 order by num", -1, &stmt, NULL);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, dev->image_storage.id);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 2, snapshot);
+  dev->history_end = 0;
+  while(sqlite3_step(stmt) == SQLITE_ROW)
+  {
+    // db record:
+    // 0-img, 1-num, 2-module_instance, 3-operation char, 4-params blob, 5-enabled, 6-blend_params, 7-blendop_version, 8 multi_priority, 9 multi_name
+    dt_dev_history_item_t *hist = (dt_dev_history_item_t *)malloc(sizeof(dt_dev_history_item_t));
+    hist->enabled = sqlite3_column_int(stmt, 5);
+
+    GList *modules = dev->iop;
+    const char *opname = (const char *)sqlite3_column_text(stmt, 3);
+    int multi_priority = sqlite3_column_int(stmt, 8);
+    const char *multi_name = (const char *)sqlite3_column_text(stmt, 9);
+    if(!opname)
+    {
+      fprintf(stderr, "[dev_read_history] database snapshot history for image `%s' seems to be corrupted!\n", dev->image_storage.filename);
+      free(hist);
+      continue;
+    }
+
+    hist->module = NULL;
+    dt_iop_module_t *find_op = NULL;
+    while(opname && modules)
+    {
+      dt_iop_module_t *module = (dt_iop_module_t *)modules->data;
+      if(!strcmp(module->op, opname))
+      {
+        if (module->multi_priority == multi_priority)
+        {
+          hist->module = module;
+          if(multi_name && strcmp(module->multi_name, multi_name))
+            snprintf(module->multi_name, 128, "%s", multi_name);
+          break;
+        }
+        else if (multi_priority > 0)
+        {
+          //we just say that we find the name, so we just have to add new instance of this module
+          find_op = module;
+        }
+      }
+      modules = g_list_next(modules);
+    }
+    if (!hist->module && find_op)
+    {
+      //we have to add a new instance of this module and set index to modindex
+      dt_iop_module_t *new_module    = (dt_iop_module_t *)malloc(sizeof(dt_iop_module_t));
+      if (!dt_iop_load_module(new_module, find_op->so, dev))
+      {
+        new_module->multi_priority = multi_priority;
+
+        snprintf(new_module->multi_name,128,"%s",multi_name);
+
+        dev->iop = g_list_insert_sorted(dev->iop, new_module, sort_plugins);
+
+        new_module->instance = find_op->instance;
+        hist->module = new_module;
+      }
+    }
+
+    if(!hist->module && opname)
+    {
+      fprintf(stderr, "[dev_read_history] the module `%s' requested by image `%s' is not installed on this computer!\n", opname, dev->image_storage.filename);
+      free(hist);
+      continue;
+    }
+
+    if(hist->module->flags() & IOP_FLAGS_NO_HISTORY_STACK)
+    {
+      free(hist);
+      continue;
+    }
+
+    int modversion = sqlite3_column_int(stmt, 2);
+    assert(strcmp((char *)sqlite3_column_text(stmt, 3), hist->module->op) == 0);
+    hist->params = malloc(hist->module->params_size);
+    hist->blend_params = malloc(sizeof(dt_develop_blend_params_t));
+    snprintf(hist->multi_name,128,"%s",multi_name);
+    hist->multi_priority = multi_priority;
+
+    const void *blendop_params = sqlite3_column_blob(stmt, 6);
+    int bl_length = sqlite3_column_bytes(stmt, 6);
+    int blendop_version = sqlite3_column_int(stmt, 7);
+
+    if (blendop_params && (blendop_version == dt_develop_blend_version()) && (bl_length == sizeof(dt_develop_blend_params_t)))
+    {
+      memcpy(hist->blend_params, blendop_params, sizeof(dt_develop_blend_params_t));
+    }
+    else if (blendop_params && dt_develop_blend_legacy_params(hist->module, blendop_params, blendop_version, hist->blend_params, dt_develop_blend_version(), bl_length) == 0)
+    {
+      // do nothing
+    }
+    else
+    {
+      memcpy(hist->blend_params, hist->module->default_blendop_params, sizeof(dt_develop_blend_params_t));
+    }
+
+    if(hist->module->version() != modversion || hist->module->params_size != sqlite3_column_bytes(stmt, 4) ||
+        strcmp((char *)sqlite3_column_text(stmt, 3), hist->module->op))
+    {
+      if(!hist->module->legacy_params ||
+          hist->module->legacy_params(hist->module, sqlite3_column_blob(stmt, 4), labs(modversion), hist->params, labs(hist->module->version())))
+      {
+        free(hist->params);
+        free(hist->blend_params);
+        fprintf(stderr, "[dev_read_history] module `%s' version mismatch: history is %d, dt %d.\n", hist->module->op, modversion, hist->module->version());
+        const char *fname = dev->image_storage.filename + strlen(dev->image_storage.filename);
+        while(fname > dev->image_storage.filename && *fname != '/') fname --;
+        if(fname > dev->image_storage.filename) fname++;
+        dt_control_log(_("%s: module `%s' version mismatch: %d != %d"), fname, hist->module->op, hist->module->version(), modversion);
+        free(hist);
+        continue;
+      }
+      else
+      {
+        //quick and dirty hack to handle spot removal legacy_params
+        memcpy(hist->blend_params, hist->module->blend_params, sizeof(dt_develop_blend_params_t));
+        memcpy(hist->module->blend_params, hist->module->default_blendop_params,sizeof(dt_develop_blend_params_t));
+      }
+    }
+    else
+    {
+      memcpy(hist->params, sqlite3_column_blob(stmt, 4), hist->module->params_size);
+    }
+
+    // make sure that always-on modules are always on. duh.
+    if(hist->module->default_enabled == 1 && hist->module->hide_enable_button == 1)
+    {
+      hist->enabled = 1;
+    }
+
+    // memcpy(hist->module->params, hist->params, hist->module->params_size);
+    // hist->module->enabled = hist->enabled;
+    // printf("[dev read history] img %d number %d for operation %d - %s params %f %f\n", sqlite3_column_int(stmt, 0), sqlite3_column_int(stmt, 1), instance, hist->module->op, *(float *)hist->params, *(((float*)hist->params)+1));
+    dev->history = g_list_append(dev->history, hist);
+    dev->history_end ++;
+  }
+
+  if(dev->gui_attached)
+  {
+    dev->pipe->changed |= DT_DEV_PIPE_SYNCH;
+    //dev->preview_pipe->changed |= DT_DEV_PIPE_SYNCH; // again, fixed topology for now.
+    dt_dev_invalidate(dev);
+
+    /* signal history changed */
+    //dt_control_signal_raise(darktable.signals,DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
+  }
+  sqlite3_finalize (stmt);
 }
+
 
 void dt_dev_read_history(dt_develop_t *dev)
 {

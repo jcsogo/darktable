@@ -108,6 +108,7 @@ void cleanup(dt_view_t *self)
 
 void expose(dt_view_t *self, cairo_t *cri, int32_t width_i, int32_t height_i, int32_t pointerx, int32_t pointery)
 {
+  printf("darkroom: expose called!\n");
   // startup-time conf parameter:
   const int32_t capwd = darktable.thumbnail_width;
   const int32_t capht = darktable.thumbnail_height;
