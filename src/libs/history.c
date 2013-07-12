@@ -221,6 +221,9 @@ static void _lib_history_compress_clicked_callback (GtkWidget *widget, gpointer 
   if(!imgid) return;
   // make sure the right history is in there:
   dt_dev_write_history(darktable.develop);
+    
+    /* redraw center view */
+    dt_control_queue_redraw_center();
   sqlite3_stmt *stmt;
 
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "delete from history where imgid = ?1 and num not in (select MAX(num) from history where imgid = ?1 group by operation,multi_priority)", -1, &stmt, NULL);

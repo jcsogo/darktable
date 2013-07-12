@@ -631,7 +631,7 @@ static void _pop_history_items_helper(dt_develop_t *dev, int32_t cnt)
     modules = g_list_next(modules);
   }
 }
-
+#if 0
 static void _pop_history_items_helper1(dt_develop_t *dev, int32_t cnt)
 {
   // printf("dev popping all history items >= %d\n", cnt);
@@ -668,12 +668,13 @@ static void _pop_history_items_helper1(dt_develop_t *dev, int32_t cnt)
   }
 #endif
 }
+#endif
 
 void dt_dev_clear_history_items(dt_develop_t *dev)
 {
   dt_pthread_mutex_lock(&dev->history_mutex);
 
-  _pop_history_items_helper1(dev, 0);
+  _pop_history_items_helper(dev, 0);
   // remove unused history items:
   GList *history = g_list_nth(dev->history, dev->history_end);
   while(history)
@@ -765,6 +766,8 @@ void dt_dev_pop_history_items(dt_develop_t *dev, int32_t cnt)
 void dt_dev_write_history(dt_develop_t *dev)
 {
   sqlite3_stmt *stmt;
+
+  printf ("HEY HEY WHY ARE WE HERE?? writing history!!!\n");
 
   gboolean changed = FALSE;
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "DELETE FROM history WHERE imgid = ?1 AND snapshot_num=-1", -1, &stmt, NULL);

@@ -124,13 +124,19 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
 {
   dt_lib_snapshots_t *d = (dt_lib_snapshots_t *)self->data;
   
+  // switch to know what are we processing in each expose event
+  //static int process_snapshot = 0;
+  static int imagen = 0;
+  static int snap = 0;
+  
   printf("SNAPSHOTS: post expose called - selected: %d\n", d->selected);
 
   // FIXME: check we are starting to count in 1 everywhere
-  if (d->selected < 1) return;
-
-  // switch to know what are we processing in each expose event
-  static int process_snapshot = 0;
+  if (d->selected < 1) 
+  {
+    imagen = snap = 0;
+    return;
+  }
 
   // convert to image coordinates:
   double x_start = width  > darktable.thumbnail_width  ? (width - darktable.thumbnail_width) *.5f:0;
@@ -161,6 +167,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     if(image_surface) cairo_surface_destroy(image_surface);
     image_surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, width, height);
     image_surface_imgid = -1; // invalidate old stuff
+    snap = imagen = 0;
   }
   cairo_surface_t *surface, *surface_snapshot;
   cairo_t *cr = cairo_create(image_surface);
@@ -172,51 +179,52 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   
   stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
 
-  process_snapshot++;
-  printf ("We are in the loop: state is %d\n", process_snapshot);
+  //process_snapshot++;
+  //printf ("We are in the loop: state is %d\n", process_snapshot);
+  printf ("Imagen: %d - Snapshot: %d\n", imagen, snap);
 
-  if((dev->image_dirty && process_snapshot == 1)|| dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  //if((dev->image_dirty && process_snapshot == 1)|| dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  if (imagen == 0)
   {
     printf("Processing original image\n");
     dt_dev_process_image(dev);
-    printf("Original is dirty: %d\n", dev->image_dirty);
+    imagen = 1;
     return;
   }
-  else if (d->image_backbuf == NULL)
+  else if (imagen == 1)
   {
     printf ("creating ORIGINAL image surface\n");
     //surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
     d->image_backbuf_size = dev->pipe->backbuf_size;
     d->image_backbuf = malloc(sizeof(uint8_t)*d->image_backbuf_size);
     memcpy (d->image_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
+    imagen = 2;
   }
 
   // Snapshot
-  if(process_snapshot == 2 || dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  if(snap == 0)
   {
     printf("Processing SNAPSHOT image\n");
     dt_dev_clear_history_items(dev);
     dt_dev_read_snapshot_history(dev, d->selected);
     dt_dev_process_image(dev);
-    printf("SNAPHOT is dirty: %d\n", dev->image_dirty);
+    snap = 1;
     return;
   }
-  else if (d->snapshot_backbuf == NULL)
+  else if (snap == 1)
   {
     printf("creating SNAPSHOT image surface\n");
     d->snapshot_backbuf_size = dev->pipe->backbuf_size;
     d->snapshot_backbuf = malloc(sizeof(uint8_t)*d->snapshot_backbuf_size);
     memcpy (d->snapshot_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
+    snap = 2;
     //surface_snapshot = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
   }
-  else
-    process_snapshot = 0;
-
-  
+ 
+  // I think we should check that we reach here being at 2 ... if not reset and restart. Or create this above.
+  // Or just check here that the buffers exist and reset if they don't
   surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
   surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
-
-
   
   // FIXME: This is only a snippet
   // The first part of the code can be shared with darktable.c
