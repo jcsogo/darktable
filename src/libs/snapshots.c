@@ -76,7 +76,10 @@ typedef struct dt_lib_snapshots_t
   
   /* Cache for bufer... FIXME: should they be here or in dt_snapshot_t?*/
   uint8_t *image_backbuf, *snapshot_backbuf;
-  int image_backbuf_size, snapshot_backbuf_size; 
+  int image_backbuf_size, snapshot_backbuf_size;
+
+  /* Mutex for expose */
+  dt_pthread_mutex_t *snapshot_expose;
 
 }
 dt_lib_snapshots_t;
@@ -150,8 +153,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   DT_CTL_GET_GLOBAL(zoom_x, dev_zoom_x);
   DT_CTL_GET_GLOBAL(zoom, dev_zoom);
   DT_CTL_GET_GLOBAL(closeup, dev_closeup);
-  static cairo_surface_t *image_surface = NULL;
-  static int image_surface_width = 0, image_surface_height = 0, image_surface_imgid = -1;
   
   static float roi_hash_old = -1.0f;
   // compute patented dreggn hash so we don't need to check all values:
@@ -159,6 +160,8 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
 
   dt_develop_t *dev = darktable.develop;
 
+  static cairo_surface_t *image_surface = NULL;
+  static int image_surface_width = 0, image_surface_height = 0, image_surface_imgid = -1;
   if(image_surface_width != width || image_surface_height != height || image_surface == NULL)
   {
     // create double-buffered image to draw on, to make modules draw more fluently.
@@ -169,8 +172,8 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     image_surface_imgid = -1; // invalidate old stuff
     snap = imagen = 0;
   }
-  cairo_surface_t *surface, *surface_snapshot;
   cairo_t *cr = cairo_create(image_surface);
+  cairo_surface_t *surface, *surface_snapshot;
   
   wd = dev->pipe->backbuf_width;
   ht = dev->pipe->backbuf_height;
@@ -182,49 +185,71 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   //process_snapshot++;
   //printf ("We are in the loop: state is %d\n", process_snapshot);
   printf ("Imagen: %d - Snapshot: %d\n", imagen, snap);
+  
+  mutex = &dev->pipe->backbuf_mutex;
 
   //if((dev->image_dirty && process_snapshot == 1)|| dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
   if (imagen == 0)
   {
     printf("Processing original image\n");
+    dt_pthread_mutex_lock(mutex);
     dt_dev_process_image(dev);
     imagen = 1;
+    dt_pthread_mutex_unlock(mutex);
     return;
   }
   else if (imagen == 1)
   {
     printf ("creating ORIGINAL image surface\n");
     //surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    dt_pthread_mutex_lock(mutex);
     d->image_backbuf_size = dev->pipe->backbuf_size;
     d->image_backbuf = malloc(sizeof(uint8_t)*d->image_backbuf_size);
     memcpy (d->image_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
     imagen = 2;
+    dt_pthread_mutex_unlock(mutex);
   }
 
   // Snapshot
   if(snap == 0)
   {
+    dt_pthread_mutex_lock(mutex);
     printf("Processing SNAPSHOT image\n");
     dt_dev_clear_history_items(dev);
     dt_dev_read_snapshot_history(dev, d->selected);
     dt_dev_process_image(dev);
     snap = 1;
+    dt_pthread_mutex_unlock(mutex);
     return;
   }
   else if (snap == 1)
   {
+    dt_pthread_mutex_lock(mutex);
     printf("creating SNAPSHOT image surface\n");
     d->snapshot_backbuf_size = dev->pipe->backbuf_size;
     d->snapshot_backbuf = malloc(sizeof(uint8_t)*d->snapshot_backbuf_size);
     memcpy (d->snapshot_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
     snap = 2;
+    dt_pthread_mutex_unlock(mutex);
     //surface_snapshot = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
   }
  
   // I think we should check that we reach here being at 2 ... if not reset and restart. Or create this above.
   // Or just check here that the buffers exist and reset if they don't
-  surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
-  surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+  if (d->image_backbuf != NULL && d->snapshot_backbuf != NULL)
+  {
+    surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+  }
+  else
+  {
+    /* Let's restart */
+    snap = 0;
+    imagen = 0;
+    d->image_backbuf = d->snapshot_backbuf = NULL;
+    dt_control_queue_redraw_center();
+    return;
+  }
   
   // FIXME: This is only a snippet
   // The first part of the code can be shared with darktable.c
@@ -233,7 +258,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   if(!dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
   {
     roi_hash_old = roi_hash;
-    mutex = &dev->pipe->backbuf_mutex;
     dt_pthread_mutex_lock(mutex);
 
     cairo_save(cr);
@@ -264,7 +288,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
     cairo_fill_preserve(cr);
     cairo_set_line_width(cr, 10.0);
-    cairo_set_source_rgb (cr, .3, .3, .3);
+    cairo_set_source_rgb (cr, .7, .7, .7);
     cairo_stroke (cr);
     cairo_surface_destroy (surface_snapshot);
     cairo_restore(cr);
@@ -792,6 +816,7 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
     d->selected = -1;
     dt_dev_clear_history_items(dev);
     dt_dev_read_history(dev);
+    printf ("We should be getting back here the old history\n");
     // FIXME: there is an improvement here... we can inject back the old
     // buffer and set the image as not dirty, so it doesn't need to be computed again
   }
