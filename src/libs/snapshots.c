@@ -131,6 +131,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   //static int process_snapshot = 0;
   static int imagen = 0;
   static int snap = 0;
+  static int timestamp = 0;
   
   printf("SNAPSHOTS: post expose called - selected: %d\n", d->selected);
 
@@ -184,7 +185,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
 
   //process_snapshot++;
   //printf ("We are in the loop: state is %d\n", process_snapshot);
-  printf ("Imagen: %d - Snapshot: %d\n", imagen, snap);
+  printf ("Imagen: %d - Snapshot: %d - Dirty: %d\n", imagen, snap, dev->image_dirty);
   
   mutex = &dev->pipe->backbuf_mutex;
 
@@ -192,37 +193,36 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   if (imagen == 0)
   {
     printf("Processing original image\n");
-    dt_pthread_mutex_lock(mutex);
     dt_dev_process_image(dev);
     imagen = 1;
-    dt_pthread_mutex_unlock(mutex);
     return;
   }
-  else if (imagen == 1)
+  else if (imagen == 1 && !dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
   {
+    dt_pthread_mutex_lock(mutex);
     printf ("creating ORIGINAL image surface\n");
     //surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
-    dt_pthread_mutex_lock(mutex);
     d->image_backbuf_size = dev->pipe->backbuf_size;
     d->image_backbuf = malloc(sizeof(uint8_t)*d->image_backbuf_size);
     memcpy (d->image_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
     imagen = 2;
+    timestamp = dev->pipe->input_timestamp;
     dt_pthread_mutex_unlock(mutex);
   }
+  else if (imagen != 2 && dev->image_dirty)
+    return;
 
   // Snapshot
-  if(snap == 0)
+  if(snap == 0 && !dev->image_dirty)
   {
-    dt_pthread_mutex_lock(mutex);
     printf("Processing SNAPSHOT image\n");
     dt_dev_clear_history_items(dev);
     dt_dev_read_snapshot_history(dev, d->selected);
     dt_dev_process_image(dev);
     snap = 1;
-    dt_pthread_mutex_unlock(mutex);
     return;
   }
-  else if (snap == 1)
+  else if (snap == 1 && !dev->image_dirty && dev->pipe->input_timestamp > timestamp)
   {
     dt_pthread_mutex_lock(mutex);
     printf("creating SNAPSHOT image surface\n");
@@ -230,20 +230,22 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     d->snapshot_backbuf = malloc(sizeof(uint8_t)*d->snapshot_backbuf_size);
     memcpy (d->snapshot_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
     snap = 2;
-    dt_pthread_mutex_unlock(mutex);
     //surface_snapshot = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
+    dt_pthread_mutex_unlock(mutex);
   }
+  else if (snap != 2 && dev->image_dirty)
+    return;
  
   // I think we should check that we reach here being at 2 ... if not reset and restart. Or create this above.
   // Or just check here that the buffers exist and reset if they don't
-  if (d->image_backbuf != NULL && d->snapshot_backbuf != NULL)
+  if (snap == 2 && d->image_backbuf != NULL && d->snapshot_backbuf != NULL)
   {
     surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
     surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
   }
   else
   {
-    /* Let's restart */
+    /* Something happened - Let's restart ??*/
     snap = 0;
     imagen = 0;
     d->image_backbuf = d->snapshot_backbuf = NULL;
@@ -254,8 +256,8 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   // FIXME: This is only a snippet
   // The first part of the code can be shared with darktable.c
   // Draw center view
-  printf ("Timestamps: Pipe - %d -- Preview - %d\n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp);
-  if(!dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
+  printf ("Timestamps Pipe: %d -- Preview: %d - Timestamp: %d \n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp, timestamp);
+  if(!dev->image_dirty && dev->pipe->input_timestamp > timestamp)
   {
     roi_hash_old = roi_hash;
     dt_pthread_mutex_lock(mutex);
