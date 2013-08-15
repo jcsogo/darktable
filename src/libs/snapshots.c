@@ -216,7 +216,12 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   if(snap == 0 && !dev->image_dirty)
   {
     printf("Processing SNAPSHOT image\n");
-    dt_dev_clear_history_items(dev);
+    //dt_dev_clear_history_items(dev);
+    if (dev->previous_history == NULL)
+    {
+      dev->previous_history = dev->history;
+      dev->history = NULL;
+    }
     dt_dev_read_snapshot_history(dev, d->selected);
     dt_dev_process_image(dev);
     snap = 1;
@@ -816,8 +821,20 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
   {
     v->call_expose = TRUE;
     d->selected = -1;
-    dt_dev_clear_history_items(dev);
-    dt_dev_read_history(dev);
+    //dt_dev_clear_history_items(dev);
+    //dt_dev_read_history(dev);
+    
+    /* FIXME: leaking here, we should be cleaning the list
+    if (dev->history != NULL)
+    */
+    if (dev->previous_history)
+    {
+      dev->history = dev->previous_history;
+      //FIXME and leaking here as well
+      dev->previous_history = NULL;
+      dev->history_end = g_list_length (dev->history);
+    }
+    
     printf ("We should be getting back here the old history\n");
     // FIXME: there is an improvement here... we can inject back the old
     // buffer and set the image as not dirty, so it doesn't need to be computed again

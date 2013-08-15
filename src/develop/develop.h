@@ -94,6 +94,7 @@ typedef struct dt_develop_t
   dt_pthread_mutex_t history_mutex;
   int32_t history_end;
   GList *history;
+  GList *previous_history;
 
   // operations pipeline
   int32_t iop_instance;

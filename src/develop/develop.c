@@ -60,6 +60,7 @@ void dt_dev_init(dt_develop_t *dev, int32_t gui_attached)
   dt_pthread_mutex_init(&dev->history_mutex, NULL);
   dev->history_end = 0;
   dev->history = NULL; // empty list
+  dev->previous_history = NULL; //empty list
 
   dev->gui_attached = gui_attached;
   dev->width = -1;
@@ -136,6 +137,13 @@ void dt_dev_cleanup(dt_develop_t *dev)
     free(((dt_dev_history_item_t *)dev->history->data)->blend_params);
     free( (dt_dev_history_item_t *)dev->history->data);
     dev->history = g_list_delete_link(dev->history, dev->history);
+  }
+  while(dev->previous_history)
+  {
+    free(((dt_dev_history_item_t *)dev->previous_history->data)->params);
+    free(((dt_dev_history_item_t *)dev->previous_history->data)->blend_params);
+    free( (dt_dev_history_item_t *)dev->previous_history->data);
+    dev->previous_history = g_list_delete_link(dev->previous_history, dev->previous_history);
   }
   while(dev->iop)
   {
