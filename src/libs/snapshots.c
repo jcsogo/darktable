@@ -833,6 +833,10 @@ static void _lib_snapshots_toggled_callback(GtkToggleButton *widget, gpointer us
       //FIXME and leaking here as well
       dev->previous_history = NULL;
       dev->history_end = g_list_length (dev->history);
+      dt_control_signal_raise(darktable.signals,DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
+      // FIXME: we probably don't need to reprocess preview
+      dt_dev_invalidate(dev);
+      dev->pipe->changed |= DT_DEV_PIPE_REMOVE;
     }
     
     printf ("We should be getting back here the old history\n");
