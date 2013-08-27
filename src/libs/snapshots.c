@@ -583,7 +583,7 @@ void gui_init(dt_lib_module_t *self)
                _("take snapshot to compare with another image or the same image at another stage of development"),
                (char *)NULL);
 
-  button = gtk_toggle_button_new_with_label(_("split"));
+  button = dtgtk_togglebutton_new_with_label(_("split"), NULL, CPF_STYLE_FLAT);
   d->split_button = button;
   g_signal_connect(G_OBJECT(button), "toggled", G_CALLBACK(_lib_snapshots_split_button_toggled_callback), self);
   g_object_set(button, "tooltip-text",
@@ -722,7 +722,7 @@ static void _lib_snapshots_add_button_clicked_callback(GtkWidget *widget, gpoint
       name = _("unknown");
   }
   g_snprintf(label,64,"%s (%d)", name, darktable.develop->history_end);
-  snapshot->button = gtk_toggle_button_new_with_label(label);
+  snapshot->button = dtgtk_togglebutton_new_with_label(label, NULL, CPF_STYLE_FLAT);
   g_signal_connect(G_OBJECT(snapshot->button), "toggled", G_CALLBACK(_lib_snapshots_toggled_callback), self);
   
   /* update the snapshots count */
