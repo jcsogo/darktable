@@ -1249,15 +1249,15 @@ void _lib_exif_read_history(Exiv2::XmpData::iterator ver,
     
     sqlite3_stmt *stmt_sel_num, *stmt_ins_hist, *stmt_upd_hist;
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                "select num from history where imgid = ?1 and num = ?2",
+                                "select num from history where imgid = ?1 and num = ?2 and snapshot_num = ?3",
                                 -1, &stmt_sel_num, NULL);
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                                "insert into history (imgid, num) values (?1, ?2)",
+                                "insert into history (imgid, num, snapshot_num) values (?1, ?2, ?3)",
                                 -1, &stmt_ins_hist, NULL);
     DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                                 "update history set operation = ?1, op_params = ?2, "
                                 "blendop_params = ?7, blendop_version = ?8, multi_priority = ?9, multi_name = ?10, module = ?3, enabled = ?4 "
-                                "where imgid = ?5 and num = ?6", -1, &stmt_upd_hist, NULL);
+                                "where imgid = ?5 and num = ?6 and snapshot_num = ?11", -1, &stmt_upd_hist, NULL);
     for(int i=0; i<cnt; i++)
     {
       const int modversion = ver->toLong(i);
@@ -1271,10 +1271,13 @@ void _lib_exif_read_history(Exiv2::XmpData::iterator ver,
       // TODO: why this update set?
       DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 1, img->id);
       DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 2, i);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_sel_num, 3, snapshot);
+
       if(sqlite3_step(stmt_sel_num) != SQLITE_ROW)
       {
         DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 1, img->id);
         DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 2, i);
+        DT_DEBUG_SQLITE3_BIND_INT(stmt_ins_hist, 3, snapshot);
         sqlite3_step (stmt_ins_hist);
         sqlite3_reset(stmt_ins_hist);
         sqlite3_clear_bindings(stmt_ins_hist);
@@ -1286,6 +1289,7 @@ void _lib_exif_read_history(Exiv2::XmpData::iterator ver,
       DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 4, enabled);
       DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 5, img->id);
       DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 6, i);
+      DT_DEBUG_SQLITE3_BIND_INT(stmt_upd_hist, 11, snapshot);
 
       /* check if we got blendop from xmp */
       unsigned char *blendop_params = NULL;
@@ -1828,7 +1832,7 @@ dt_exif_xmp_read_data(Exiv2::XmpData &xmpData, const int imgid)
 
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
                               "select imgid, num, module, operation, op_params, enabled, blendop_params, "
-                              "blendop_version, multi_priority, multi_name from history where imgid = ?1 order by num",
+                              "blendop_version, multi_priority, multi_name from history where imgid = ?1 AND snapshot_num = -1 order by num",
                               -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   while(sqlite3_step(stmt) == SQLITE_ROW)
