@@ -176,20 +176,31 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   cairo_t *cr = cairo_create(image_surface);
   cairo_surface_t *surface, *surface_snapshot;
   
-  wd = dev->pipe->backbuf_width;
-  ht = dev->pipe->backbuf_height;
-  
-  printf("Height: %d, Width: %d\n Pipe: H %d - W %d\n", height, width, ht, wd);
-  
-  stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
-
   //process_snapshot++;
   //printf ("We are in the loop: state is %d\n", process_snapshot);
   printf ("Imagen: %d - Snapshot: %d - Dirty: %d\n", imagen, snap, dev->image_dirty);
+  printf ("ROI HASH: OLD %f - CURRENT %f\n", roi_hash_old, roi_hash);
   
   mutex = &dev->pipe->backbuf_mutex;
 
-  //if((dev->image_dirty && process_snapshot == 1)|| dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
+  if(roi_hash != roi_hash_old && roi_hash_old != -1)
+  {
+    roi_hash_old = roi_hash;
+    //image_surface_imgid = dev->image_storage.id;
+    snap = imagen = 0;
+    if (dev->previous_history)
+    {
+      dev->history = dev->previous_history;
+      dev->previous_history = NULL;
+      dev->history_end = g_list_length (dev->history);
+      dt_dev_invalidate(dev);
+      dev->pipe->changed |= DT_DEV_PIPE_REMOVE;
+    }
+    d->image_backbuf = d->snapshot_backbuf = NULL; //FIXME: leak
+  }
+  
+  printf ("Timestamps Pipe BEFORE: %d -- Preview: %d - Timestamp: %d \n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp, timestamp);
+
   if (imagen == 0)
   {
     printf("Processing original image\n");
@@ -201,7 +212,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   {
     dt_pthread_mutex_lock(mutex);
     printf ("creating ORIGINAL image surface\n");
-    //surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
     d->image_backbuf_size = dev->pipe->backbuf_size;
     d->image_backbuf = malloc(sizeof(uint8_t)*d->image_backbuf_size);
     memcpy (d->image_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
@@ -221,7 +231,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     {
       dev->previous_history = dev->history;
       dev->history = NULL;
-    }
+    } 
     dt_dev_read_snapshot_history(dev, d->selected);
     dt_dev_process_image(dev);
     snap = 1;
@@ -235,7 +245,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     d->snapshot_backbuf = malloc(sizeof(uint8_t)*d->snapshot_backbuf_size);
     memcpy (d->snapshot_backbuf, dev->pipe->backbuf, dev->pipe->backbuf_size);
     snap = 2;
-    //surface_snapshot = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
     dt_pthread_mutex_unlock(mutex);
   }
   else if (snap != 2 && dev->image_dirty)
@@ -245,6 +254,13 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   // Or just check here that the buffers exist and reset if they don't
   if (snap == 2 && d->image_backbuf != NULL && d->snapshot_backbuf != NULL)
   {
+    wd = dev->pipe->backbuf_width;
+    ht = dev->pipe->backbuf_height;
+    
+    printf("Height: %d, Width: %d\n Pipe: H %d - W %d - Zoom: %d\n", height, width, ht, wd, zoom);
+    
+    stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
+
     surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
     surface_snapshot = cairo_image_surface_create_for_data (d->snapshot_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
   }
@@ -262,6 +278,18 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   // The first part of the code can be shared with darktable.c
   // Draw center view
   printf ("Timestamps Pipe: %d -- Preview: %d - Timestamp: %d \n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp, timestamp);
+  
+  dt_view_manager_t *vmanager = darktable.view_manager;
+  int current_view = vmanager->current_view;
+  dt_view_t view = vmanager->view[current_view];
+
+  // adjust scroll bars
+  {
+    float zx = zoom_x, zy = zoom_y, boxw = 1., boxh = 1.;
+    dt_dev_check_zoom_bounds(dev, &zx, &zy, zoom, closeup, &boxw, &boxh);
+    dt_view_set_scrollbar(&view, zx+.5-boxw*.5, 1.0, boxw, zy+.5-boxh*.5, 1.0, boxh);
+  }
+  
   if(!dev->image_dirty && dev->pipe->input_timestamp > timestamp)
   {
     roi_hash_old = roi_hash;
@@ -303,76 +331,20 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     dt_pthread_mutex_unlock(mutex);
     image_surface_imgid = dev->image_storage.id;
   }
-  else if(!dev->preview_dirty && (roi_hash != roi_hash_old))
-  {
-    printf("snapshots: else_if\n");
-  }
-
 #if 0
-  if(!dev->image_dirty && dev->pipe->input_timestamp >= dev->preview_pipe->input_timestamp)
+  else if(roi_hash != roi_hash_old)
   {
-    // draw image
     roi_hash_old = roi_hash;
-    mutex = &dev->pipe->backbuf_mutex;
-    dt_pthread_mutex_lock(mutex);
-    wd = dev->pipe->backbuf_width;
-    ht = dev->pipe->backbuf_height;
-    stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
-    surface = cairo_image_surface_create_for_data (dev->pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
-    //cairo_set_source_rgb (cr, .2, .2, .2);
-    cairo_set_source_rgb (cr, .1, .8, .2);
-    cairo_paint(cr);
-    cairo_translate(cr, .5f*(width-wd), .5f*(height-ht));
-#if 0
-    if(closeup)
+    //image_surface_imgid = dev->image_storage.id;
+    snap = imagen = 0;
+    if (dev->previous_history)
     {
-      const float closeup_scale = 2.0;
-      cairo_scale(cr, closeup_scale, closeup_scale);
-      float boxw = 1, boxh = 1, zx0 = zoom_x, zy0 = zoom_y, zx1 = zoom_x, zy1 = zoom_y, zxm = -1.0, zym = -1.0;
-      dt_dev_check_zoom_bounds(dev, &zx0, &zy0, zoom, 0, &boxw, &boxh);
-      dt_dev_check_zoom_bounds(dev, &zx1, &zy1, zoom, 1, &boxw, &boxh);
-      dt_dev_check_zoom_bounds(dev, &zxm, &zym, zoom, 1, &boxw, &boxh);
-      const float fx = 1.0 - fmaxf(0.0, (zx0 - zx1)/(zx0 - zxm)), fy = 1.0 - fmaxf(0.0, (zy0 - zy1)/(zy0 - zym));
-      cairo_translate(cr, -wd/(2.0*closeup_scale) * fx, -ht/(2.0*closeup_scale) * fy);
+      dev->history = dev->previous_history;
+      dev->previous_history = NULL;
+      dev->history_end = g_list_length (dev->history);
+      dt_dev_invalidate(dev);
+      dev->pipe->changed |= DT_DEV_PIPE_REMOVE;
     }
-#endif
-    cairo_rectangle(cr, 0, 0, wd, ht);
-    cairo_set_source_surface (cr, surface, 0, 0);
-    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
-    cairo_fill_preserve(cr);
-    cairo_set_line_width(cr, 1.0);
-    cairo_set_source_rgb (cr, .3, .3, .3);
-    cairo_stroke(cr);
-    cairo_surface_destroy (surface);
-    dt_pthread_mutex_unlock(mutex);
-    image_surface_imgid = dev->image_storage.id;
-  }
-  else
-  {
-    roi_hash_old = roi_hash;
-    mutex = &dev->preview_pipe->backbuf_mutex;
-    dt_pthread_mutex_lock(mutex);
-
-    wd = dev->preview_pipe->backbuf_width;
-    ht = dev->preview_pipe->backbuf_height;
-    float zoom_scale = dt_dev_get_zoom_scale(dev, zoom, closeup ? 2 : 1, 1);
-    cairo_set_source_rgb (cr, .2, .2, .2);
-    cairo_paint(cr);
-    cairo_rectangle(cr, 0, 0, width, height);
-    cairo_clip(cr);
-    stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
-    surface = cairo_image_surface_create_for_data (dev->preview_pipe->backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
-    cairo_translate(cr, width/2.0, height/2.0f);
-    cairo_scale(cr, zoom_scale, zoom_scale);
-    cairo_translate(cr, -.5f*wd-zoom_x*wd, -.5f*ht-zoom_y*ht);
-    // avoid to draw the 1px garbage that sometimes shows up in the preview :(
-    cairo_rectangle(cr, 0, 0, wd-1, ht-1);
-    cairo_set_source_surface (cr, surface, 0, 0);
-    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_FAST);
-    cairo_fill(cr);
-    cairo_surface_destroy (surface);
-    dt_pthread_mutex_unlock(mutex);
-    image_surface_imgid = dev->image_storage.id;
   }
 #endif
 
@@ -513,6 +485,7 @@ int button_pressed (struct dt_lib_module_t *self, double x, double y, double pre
 
 int mouse_moved(dt_lib_module_t *self, double x, double y, double pressure, int which)
 {
+#if 0
   dt_lib_snapshots_t *d=(dt_lib_snapshots_t *)self->data;
 
   if(d->snapshot_image)
@@ -535,8 +508,9 @@ int mouse_moved(dt_lib_module_t *self, double x, double y, double pressure, int 
     return 1;
   }
 
+#endif
   return 0;
-}
+  }
 
 
 
