@@ -133,18 +133,11 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   static int snap = 0;
   static int timestamp = 0;
   
-  printf("SNAPSHOTS: post expose called - selected: %d\n", d->selected);
-
-  // FIXME: check we are starting to count in 1 everywhere
   if (d->selected < 1) 
   {
     imagen = snap = 0;
     return;
   }
-
-  // convert to image coordinates:
-  double x_start = width  > darktable.thumbnail_width  ? (width - darktable.thumbnail_width) *.5f:0;
-  double y_start = height > darktable.thumbnail_height ? (height- darktable.thumbnail_height)*.5f:0;
 
   dt_pthread_mutex_t *mutex = NULL;
   int wd, ht, stride, closeup;
@@ -176,8 +169,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   cairo_t *cr = cairo_create(image_surface);
   cairo_surface_t *surface, *surface_snapshot;
   
-  //process_snapshot++;
-  //printf ("We are in the loop: state is %d\n", process_snapshot);
   printf ("Imagen: %d - Snapshot: %d - Dirty: %d\n", imagen, snap, dev->image_dirty);
   printf ("ROI HASH: OLD %f - CURRENT %f\n", roi_hash_old, roi_hash);
   
@@ -193,6 +184,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
       dev->history = dev->previous_history;
       dev->previous_history = NULL;
       dev->history_end = g_list_length (dev->history);
+      dt_control_signal_raise(darktable.signals,DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
       dt_dev_invalidate(dev);
       dev->pipe->changed |= DT_DEV_PIPE_REMOVE;
     }
@@ -203,7 +195,7 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
 
   if (imagen == 0)
   {
-    printf("Processing original image\n");
+    printf("Processing ORIGINAL image\n");
     dt_dev_process_image(dev);
     imagen = 1;
     return;
@@ -226,7 +218,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
   if(snap == 0 && !dev->image_dirty)
   {
     printf("Processing SNAPSHOT image\n");
-    //dt_dev_clear_history_items(dev);
     if (dev->previous_history == NULL)
     {
       dev->previous_history = dev->history;
@@ -257,8 +248,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     wd = dev->pipe->backbuf_width;
     ht = dev->pipe->backbuf_height;
     
-    printf("Height: %d, Width: %d\n Pipe: H %d - W %d - Zoom: %d\n", height, width, ht, wd, zoom);
-    
     stride = cairo_format_stride_for_width (CAIRO_FORMAT_RGB24, wd);
 
     surface = cairo_image_surface_create_for_data (d->image_backbuf, CAIRO_FORMAT_RGB24, wd, ht, stride);
@@ -269,13 +258,11 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     /* Something happened - Let's restart ??*/
     snap = 0;
     imagen = 0;
-    d->image_backbuf = d->snapshot_backbuf = NULL;
+    d->image_backbuf = d->snapshot_backbuf = NULL; //FIXME: leaking
     dt_control_queue_redraw_center();
     return;
   }
   
-  // FIXME: This is only a snippet
-  // The first part of the code can be shared with darktable.c
   // Draw center view
   printf ("Timestamps Pipe: %d -- Preview: %d - Timestamp: %d \n", dev->pipe->input_timestamp, dev->preview_pipe->input_timestamp, timestamp);
   
@@ -314,8 +301,6 @@ void gui_post_expose(dt_lib_module_t *self, cairo_t *cri, int32_t width, int32_t
     cairo_restore(cr);
     
     cairo_save(cr);
-    //cairo_set_source_rgb (cr, .2, .2, .2);
-    //cairo_paint(cr);
     cairo_translate(cr, .5f*(width-wd), .5f*(height-ht));
     cairo_rectangle(cr, .5f*wd, 0, .5f*wd, ht);
     cairo_clip_preserve(cr);
