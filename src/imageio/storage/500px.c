@@ -1,6 +1,6 @@
 /*
     This file is part of darktable,
-    copyright (c) 2010-2011 Jose Carlos Garcia Sogo
+    copyright (c) 2010-2014 Jose Carlos Garcia Sogo
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,7 +17,6 @@
 */
 
 #include "dtgtk/button.h"
-#include "dtgtk/label.h"
 #include "gui/gtk.h"
 #include "common/darktable.h"
 #include "common/image.h"
@@ -66,12 +65,12 @@ typedef struct dt_storage_px500_gui_data_t
 
   GtkLabel *label1,*label2,*label3, *label4,*label5,*label6,*label7,*labelPerms;    // username, password, albums, status, albumtitle, albumsummary, albumrights
   GtkEntry *entry2,*entry3,*entry4;                             // username, password, albumtitle,albumsummary
-  GtkComboBox *comboBox1;                                               // album box
+  GtkComboBoxText *comboBox1;                                               // album box
   GtkCheckButton *checkButton2;                                         // export tags
   GtkDarktableButton *dtbutton1;                                        // refresh albums
   GtkButton *button;                                                    // login button. These buttons call the same functions
   GtkBox *hbox1;                                                        // Create album options...
-  GtkComboBox *permsComboBox;                                           // Permissions for flickr
+  GtkComboBoxText *permsComboBox;                                           // Permissions for flickr
 
   char *user_token;
 
@@ -195,21 +194,24 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
                      "you are done.");
 
     GtkWidget *window = dt_ui_main_window(darktable.gui->ui);
-    GtkDialog *fb_auth_dialog = GTK_DIALOG(gtk_message_dialog_new (GTK_WINDOW (window),
+    GtkDialog *px500_auth_dialog = GTK_DIALOG(gtk_message_dialog_new (GTK_WINDOW (window),
                                     GTK_DIALOG_DESTROY_WITH_PARENT,
                                     GTK_MESSAGE_QUESTION,
                                     GTK_BUTTONS_OK_CANCEL,
-                                    _("Facebook authentication")));
-    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (fb_auth_dialog),
+                                    _("500px authentication")));
+    gtk_message_dialog_format_secondary_text (GTK_MESSAGE_DIALOG (px500_auth_dialog),
         "%s\n\n%s", text1, text2);
 
     GtkWidget *entry = gtk_entry_new();
-    GtkWidget *hbox = gtk_hbox_new(FALSE, 5);
+    GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
     gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(gtk_label_new(_("url:"))), FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(entry), TRUE, TRUE, 0);
-    gtk_box_pack_end(GTK_BOX(fb_auth_dialog->vbox), hbox, TRUE, TRUE, 0);
 
-    gtk_widget_show_all(GTK_WIDGET(fb_auth_dialog));
+    GtkWidget *px500_authdialogbox = 
+      gtk_message_dialog_get_message_area(GTK_MESSAGE_DIALOG(px500_auth_dialog));
+    gtk_box_pack_end(GTK_BOX(px500_authdialogbox), hbox, TRUE, TRUE, 0);
+
+    gtk_widget_show_all(GTK_WIDGET(px500_auth_dialog));
 
     ////////////// wait for the user to entrer the validation URL
     gint result;
@@ -218,7 +220,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     const char *replyurl;
     while (TRUE)
     {
-      result = gtk_dialog_run (GTK_DIALOG (fb_auth_dialog));
+      result = gtk_dialog_run (GTK_DIALOG (px500_auth_dialog));
       if (result == GTK_RESPONSE_CANCEL)
         break;
       replyurl = gtk_entry_get_text(GTK_ENTRY(entry));
@@ -253,7 +255,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
                 FB_WS_BASE_URL"connect/login_success.html?...");*/
     }
     
-    gtk_widget_destroy(GTK_WIDGET(fb_auth_dialog));
+    gtk_widget_destroy(GTK_WIDGET(px500_auth_dialog));
     
 /*
     const char* params[] = {
@@ -555,43 +557,49 @@ gui_init (dt_imageio_module_storage_t *self)
 
  // flickcurl_init ();
 
-  self->widget = gtk_vbox_new(FALSE, 0);
+  self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-  GtkWidget *hbox1=gtk_hbox_new(FALSE,5);
-  GtkWidget *hbox0=gtk_hbox_new(FALSE,5);
-  GtkWidget *vbox1=gtk_vbox_new(FALSE,0);
-  GtkWidget *vbox2=gtk_vbox_new(FALSE,5);
+  GtkWidget *hbox1=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
+  GtkWidget *hbox0=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5);
+  GtkWidget *vbox1=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+  GtkWidget *vbox2=gtk_box_new(GTK_ORIENTATION_VERTICAL,5);
 
-  ui->label1 = GTK_LABEL(  gtk_label_new( _("not logged in") ) );
-  ui->label3 = GTK_LABEL(  gtk_label_new( _("photosets") ) );
-  ui->labelPerms = GTK_LABEL(  gtk_label_new( _("visible to") ) );
+  ui->label1 = GTK_LABEL(gtk_label_new( _("not logged in")));
+  ui->label3 = GTK_LABEL(gtk_label_new( _("photosets")));
+  ui->labelPerms = GTK_LABEL(gtk_label_new( _("visible to")));
   //ui->label4 = GTK_LABEL(  gtk_label_new( NULL ) );
 
   //set_status(ui,_("click login button to start"), "#ffffff");
 
-  ui->label5 = GTK_LABEL(  gtk_label_new( _("title") ) );
-  ui->label6 = GTK_LABEL(  gtk_label_new( _("summary") ) );
-  gtk_misc_set_alignment(GTK_MISC(ui->label1),      0.0, 0.5);
+  ui->label5 = GTK_LABEL(gtk_label_new(_("title")));
+  ui->label6 = GTK_LABEL(gtk_label_new( _("summary")));
+  /*gtk_misc_set_alignment(GTK_MISC(ui->label1),      0.0, 0.5);
   gtk_misc_set_alignment(GTK_MISC(ui->labelPerms),  0.0, 0.9);
   gtk_misc_set_alignment(GTK_MISC(ui->label3),      0.0, 0.7);
   gtk_misc_set_alignment(GTK_MISC(ui->label5),      0.0, 0.5);
-  gtk_misc_set_alignment(GTK_MISC(ui->label6),      0.0, 0.5);
+  gtk_misc_set_alignment(GTK_MISC(ui->label6),      0.0, 0.5);*/
+  gtk_widget_set_halign(GTK_WIDGET(ui->label1), GTK_ALIGN_START);
+  gtk_widget_set_halign(GTK_WIDGET(ui->label3), GTK_ALIGN_START);
+  gtk_widget_set_halign(GTK_WIDGET(ui->labelPerms), GTK_ALIGN_START);
+  gtk_widget_set_halign(GTK_WIDGET(ui->label5), GTK_ALIGN_START);
+  gtk_widget_set_halign(GTK_WIDGET(ui->label6), GTK_ALIGN_START);
+
 
 //  ui->entry1 = GTK_ENTRY( gtk_entry_new() );
-  ui->entry3 = GTK_ENTRY( gtk_entry_new() );  // Album title
-  ui->entry4 = GTK_ENTRY( gtk_entry_new() );  // Album summary
+  ui->entry3 = GTK_ENTRY(gtk_entry_new());  // Album title
+  ui->entry4 = GTK_ENTRY(gtk_entry_new());  // Album summary
 
 //  dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry1));
-  dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry3));
-  dt_gui_key_accel_block_on_focus (GTK_WIDGET (ui->entry4));
+  dt_gui_key_accel_block_on_focus_connect (GTK_WIDGET (ui->entry3));
+  dt_gui_key_accel_block_on_focus_connect (GTK_WIDGET (ui->entry4));
 
   gtk_entry_set_text( ui->entry3, _("my new photoset") );
   gtk_entry_set_text( ui->entry4, _("exported from darktable") );
 
-  GtkWidget *albumlist=gtk_hbox_new(FALSE,0);
-  ui->comboBox1=GTK_COMBO_BOX( gtk_combo_box_new_text()); // Available albums
+  GtkWidget *albumlist=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,0);
+  ui->comboBox1=GTK_COMBO_BOX_TEXT( gtk_combo_box_text_new()); // Available albums
 
-  dt_ellipsize_combo(ui->comboBox1);
+  dt_ellipsize_combo(GTK_COMBO_BOX(ui->comboBox1));
 
   ui->dtbutton1 = DTGTK_BUTTON( dtgtk_button_new(dtgtk_cairo_paint_refresh,0) );
   g_object_set(G_OBJECT(ui->dtbutton1), "tooltip-text", _("refresh album list"), (char *)NULL);
@@ -600,19 +608,19 @@ gui_init (dt_imageio_module_storage_t *self)
   g_object_set(G_OBJECT(ui->button), "tooltip-text", _("px500 login"), (char *)NULL);
 
   gtk_widget_set_sensitive( GTK_WIDGET(ui->comboBox1), FALSE);
-  gtk_combo_box_set_row_separator_func(ui->comboBox1,combobox_separator,ui->comboBox1,NULL);
+  gtk_combo_box_set_row_separator_func(GTK_COMBO_BOX(ui->comboBox1),combobox_separator,ui->comboBox1,NULL);
   gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->comboBox1), TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->dtbutton1), FALSE, FALSE, 0);
 
   ui->checkButton2 = GTK_CHECK_BUTTON( gtk_check_button_new_with_label(_("export tags")) );
   gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON( ui->checkButton2 ),TRUE);
 
-  ui->permsComboBox = GTK_COMBO_BOX(gtk_combo_box_new_text());
-  gtk_combo_box_append_text(ui->permsComboBox, _("you"));
-  gtk_combo_box_append_text(ui->permsComboBox, _("friends"));
-  gtk_combo_box_append_text(ui->permsComboBox, _("family"));
-  gtk_combo_box_append_text(ui->permsComboBox, _("friends + family"));
-  gtk_combo_box_append_text(ui->permsComboBox, _("everyone"));
+  ui->permsComboBox = GTK_COMBO_BOX_TEXT(gtk_combo_box_text_new());
+  gtk_combo_box_text_append(ui->permsComboBox,NULL, _("you"));
+  gtk_combo_box_text_append(ui->permsComboBox,NULL, _("friends"));
+  gtk_combo_box_text_append(ui->permsComboBox,NULL, _("family"));
+  gtk_combo_box_text_append(ui->permsComboBox,NULL, _("friends + family"));
+  gtk_combo_box_text_append(ui->permsComboBox,NULL, _("everyone"));
   gtk_combo_box_set_active(GTK_COMBO_BOX(ui->permsComboBox), 0); // Set default permission to private
 
   gtk_box_pack_start(GTK_BOX(self->widget), hbox0, TRUE, FALSE, 5);
@@ -632,10 +640,10 @@ gui_init (dt_imageio_module_storage_t *self)
 
 
   // Create Album
-  ui->hbox1=GTK_BOX(gtk_hbox_new(FALSE,5));
+  ui->hbox1=GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,5));
   gtk_widget_set_no_show_all(GTK_WIDGET(ui->hbox1), TRUE);
-  vbox1=gtk_vbox_new(FALSE,0);
-  vbox2=gtk_vbox_new(FALSE,0);
+  vbox1=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+  vbox2=gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
 
   gtk_box_pack_start(GTK_BOX(ui->hbox1), vbox1, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(ui->hbox1), vbox2, TRUE, TRUE, 0);
@@ -667,7 +675,7 @@ gui_init (dt_imageio_module_storage_t *self)
 
 //  if( _username )
 //    g_free (_username);
-  gtk_combo_box_set_active( ui->comboBox1, FALSE);
+  gtk_combo_box_set_active(GTK_COMBO_BOX(ui->comboBox1), FALSE);
 }
 
 void
@@ -701,7 +709,8 @@ static int px500_parse_photocreate(_px500_api_context_t * ctx, long int code, co
 
 
 int
-store (dt_imageio_module_data_t *sdata, const int imgid, dt_imageio_module_format_t *format, dt_imageio_module_data_t *fdata,
+store (dt_imageio_module_storage_t *self, dt_imageio_module_data_t *sdata, 
+       const int imgid, dt_imageio_module_format_t *format, dt_imageio_module_data_t *fdata,
        const int num, const int total, const gboolean high_quality)
 {
   gint result=1;
@@ -732,7 +741,7 @@ store (dt_imageio_module_data_t *sdata, const int imgid, dt_imageio_module_forma
     return 1;
   }
   close(fd);
-  const dt_image_t *img = dt_image_cache_read_get(darktable.image_cache, imgid);
+  const dt_image_t *img = dt_image_cache_get(darktable.image_cache, imgid, 'r');
   caption = g_path_get_basename( img->filename );
 
   // If title is not existing, then use the filename without extension. If not, then use title instead
@@ -753,7 +762,7 @@ store (dt_imageio_module_data_t *sdata, const int imgid, dt_imageio_module_forma
   //}
   dt_image_cache_read_release(darktable.image_cache, img);
 
-  if(dt_imageio_export(imgid, fname, format, fdata, high_quality) != 0)
+  if(dt_imageio_export(imgid, fname, format, fdata, high_quality, FALSE, self, sdata) != 0)
   {
     fprintf(stderr, "[imageio_storage_px500] could not export to file: `%s'!\n", fname);
     dt_control_log(_("could not export to file `%s'!"), fname);
@@ -823,6 +832,16 @@ cleanup:
   return result;
 }
 
+size_t params_size(dt_imageio_module_storage_t *self)
+{
+  return sizeof(_px500_api_context_t) - 8 * sizeof(void *);
+}
+
+void init(dt_imageio_module_storage_t *self)
+{
+
+}
+
 void*
 get_params(dt_imageio_module_storage_t *self, int *size)
 {
@@ -842,7 +861,7 @@ get_params(dt_imageio_module_storage_t *self, int *size)
   {
     // We are authenticated and off to actually export images..
     d->px500_api = ui->px500_api;
-    int index = gtk_combo_box_get_active(ui->comboBox1);
+    int index = gtk_combo_box_get_active(GTK_COMBO_BOX(ui->comboBox1));
     if( index >= 0 )
     {
       switch(index)
