@@ -506,15 +506,10 @@ static char *dt_oauth_split_url(const char *url, GTree *urlparams, short qesc) {
   return baseurl;
 }
 
-static gchar *dt_oauth_gen_nonce(dt_oauth_ctx_t *ctx, size_t size)
+static gchar *dt_oauth_gen_nonce(dt_oauth_ctx_t *ctx)
 {
-  gchar *nonce = (gchar*)g_malloc((size + 1) * sizeof(gchar));
-  nonce[size] = '\0';
-  int i = 0;
-  for (; i < size; i++)
-  {
-    nonce[i] = (gchar) g_rand_int_range(ctx->priv->rand, 'a', 'z');
-  }
+  gint32 nonce_num = g_rand_int_range(ctx->priv->rand, 0, 99999999);
+  gchar *nonce = g_strdup_printf("%d", nonce_num);
   return nonce;
 }
 
@@ -533,7 +528,7 @@ static void dt_oauth_add_oauth_params(dt_oauth_ctx_t *ctx, GTree *urlparams)
     g_tree_insert(urlparams, g_strdup("oauth_token"), g_strdup(ctx->token_key));
 
   if (g_tree_lookup(urlparams, "oauth_nonce") == NULL)
-    g_tree_insert(urlparams, g_strdup("oauth_nonce"), dt_oauth_gen_nonce(ctx, 20));
+    g_tree_insert(urlparams, g_strdup("oauth_nonce"), dt_oauth_gen_nonce(ctx));
 
   if (g_tree_lookup(urlparams, "oauth_timestamp") == NULL)
     g_tree_insert(urlparams, g_strdup("oauth_timestamp"), dt_oauth_gen_timestamp());
