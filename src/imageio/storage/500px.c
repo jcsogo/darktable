@@ -146,7 +146,6 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
   // Retrieve stored auth_key
   GHashTable* table = dt_pwstorage_get("px500");
   username = g_strdup (g_hash_table_lookup(table, "username"));
-  //user_nsid = g_strdup (g_hash_table_lookup(table, "user_nsid"));
   access_token = g_strdup (g_hash_table_lookup(table, "oauth_token"));
   access_token_secret = g_strdup (g_hash_table_lookup(table, "oauth_token_secret"));
   g_hash_table_destroy(table);
@@ -156,12 +155,10 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 
   if (access_token == NULL || access_token_secret == NULL || username == NULL || ctx->needsReauthentication == TRUE)
   {
-    //gchar *username, *password;
     gchar *username;
 
     //get text from entries
     username = g_strdup("jcsogo@gmail.com");
-    //password = g_strdup("Randomize");
 
     const char* parms[] = {
        "oauth_callback", "oob",
@@ -188,7 +185,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     
     ////////////// build & show the validation dialog
     gchar *text1 = _("step 1: a new window or tab of your browser should have been "
-                     "loaded. you have to login into your facebook account there "
+                     "loaded. you have to login into your 500px account there "
                      "and authorize darktable to upload photos before continuing.");
     gchar *text2 = _("step 2: paste your browser url and click the ok button once "
                      "you are done.");
@@ -257,27 +254,19 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     
     gtk_widget_destroy(GTK_WIDGET(px500_auth_dialog));
     
-/*
     const char* params[] = {
-        "x_auth_mode", "client_auth",
-        "x_auth_username", username,
-        "x_auth_password", password,
-        "oauth_callback", "oob",
-        NULL};
-  */  
-    const char* params[] = {
+        "oauth_consumer_key", CONSUMER_KEY,
         "oauth_token", access_token,
-        "oauth_callback", "http://www.darktable.org/",
         "oauth_verifier", verifier,
         NULL};
     rc = dt_oauth_access_token(ctx->fc, "POST", "oauth/access_token", params, NULL, NULL);
-    printf ("500px: access token called. Return %d\n", rc);
 
     if (!rc)
     {
       access_token = dt_oauth_get_token (ctx->fc);
       access_token_secret = dt_oauth_get_token_secret (ctx->fc);
       ui->user_token = g_strdup(username);
+      g_printerr("TOKEN: %s\nSECRET: %s\nUSER: %s\n", access_token, access_token_secret, username);
 
       /* Add creds to pwstorage */
       GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
@@ -762,7 +751,7 @@ store (dt_imageio_module_storage_t *self, dt_imageio_module_data_t *sdata,
   //}
   dt_image_cache_read_release(darktable.image_cache, img);
 
-  if(dt_imageio_export(imgid, fname, format, fdata, high_quality, FALSE, self, sdata) != 0)
+  if(dt_imageio_export(imgid, fname, format, fdata, high_quality, FALSE, self, sdata, num, total) != 0)
   {
     fprintf(stderr, "[imageio_storage_px500] could not export to file: `%s'!\n", fname);
     dt_control_log(_("could not export to file `%s'!"), fname);
