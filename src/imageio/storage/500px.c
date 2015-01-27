@@ -72,7 +72,7 @@ typedef struct dt_storage_px500_gui_data_t
   GtkBox *hbox1;                                                        // Create album options...
   GtkComboBoxText *permsComboBox;                                           // Permissions for flickr
 
-  char *user_token;
+  char *username;
 
   /* List of albums */
   //flickcurl_photoset **albums;
@@ -129,6 +129,35 @@ static void _px500_api_error_handler(void *data, const char *message)
 }
 #endif
 
+static int _px500_parse_userinfo(dt_oauth_ctx_t* ctx, long int code, const char* reply, gpointer data)
+{
+  dt_storage_px500_gui_data_t *ui = (dt_storage_px500_gui_data_t *) data;
+  GError *error;
+  JsonParser *json_parser = json_parser_new();
+  json_parser_load_from_data(json_parser, reply, strlen(reply), &error);
+  JsonNode *root = json_parser_get_root(json_parser);
+  JsonObject* rootdict = json_node_get_object(root);
+  JsonObject* userdict = json_object_get_object_member(rootdict, "user");
+  const char* user_info = json_object_get_string_member(userdict, "email");
+  printf("user : %s\n", user_info);
+  ui->username = g_strdup(user_info);
+  
+  g_object_unref(json_parser);
+  return 0;
+}
+
+static gint _px500_api_userinfo(dt_storage_px500_gui_data_t *ui)
+{
+  gint rc;
+
+  _px500_api_context_t *ctx = ui->px500_api;
+
+  rc = dt_oauth_get(ctx->fc, "users", NULL, (dt_oauth_reply_callback_t)_px500_parse_userinfo, ui);
+
+  return rc;
+}
+
+
 static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 {
   gchar *username, *access_token, *access_token_secret;
@@ -151,14 +180,14 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
   g_hash_table_destroy(table);
 
   if (username != NULL && ctx->needsReauthentication != TRUE)
-    ui->user_token = g_strdup(username);
+    ui->username = g_strdup(username);
 
   if (access_token == NULL || access_token_secret == NULL || username == NULL || ctx->needsReauthentication == TRUE)
   {
-    gchar *username;
+    //gchar *username;
 
     //get text from entries
-    username = g_strdup("jcsogo@gmail.com");
+    //username = g_strdup("jcsogo@gmail.com");
 
     const char* parms[] = {
        "oauth_callback", "oob",
@@ -169,7 +198,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     if (rc)
     {
       set_logged (ui, FALSE);
-      ui->user_token = NULL;
+      ui->username = NULL;
       dt_oauth_ctx_destroy (ctx->fc);
       return NULL;
     }
@@ -263,10 +292,10 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 
     if (!rc)
     {
+      _px500_api_userinfo(ui);
       access_token = dt_oauth_get_token (ctx->fc);
       access_token_secret = dt_oauth_get_token_secret (ctx->fc);
-      ui->user_token = g_strdup(username);
-      g_printerr("TOKEN: %s\nSECRET: %s\nUSER: %s\n", access_token, access_token_secret, username);
+      g_printerr("TOKEN: %s\nSECRET: %s\nUSER: %s\n", access_token, access_token_secret, ui->username);
 
       /* Add creds to pwstorage */
       GHashTable *table = g_hash_table_new(g_str_hash, g_str_equal);
@@ -290,7 +319,7 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
     else
     {
       set_logged (ui, FALSE);
-      ui->user_token = NULL;
+      ui->username = NULL;
       _px500_api_free(ctx);
       return NULL;
     }
@@ -353,7 +382,7 @@ char static *_px500_api_create_photoset(_px500_api_context_t *ctx, const char *p
 const char*
 name ()
 {
-  return _("px500 webalbum");
+  return _("500px webalbum");
 }
 
 /** Set status connection text */
@@ -369,7 +398,7 @@ void static set_status(dt_storage_flickr_gui_data_t *ui, gchar *message, gchar *
 
 void static set_logged(dt_storage_px500_gui_data_t *ui, gboolean logged)
 {
-  if (logged == FALSE || ui->user_token == NULL)
+  if (logged == FALSE || ui->username == NULL)
   {
     gtk_label_set_text (GTK_LABEL(ui->label1), _("not logged in"));
     gtk_button_set_label (GTK_BUTTON(ui->button), _("login"));
@@ -379,7 +408,7 @@ void static set_logged(dt_storage_px500_gui_data_t *ui, gboolean logged)
   {
     gchar *text = NULL;
 
-    text = dt_util_dstrcat (text, _("logged in as %s"), ui->user_token);
+    text = dt_util_dstrcat (text, _("logged in as %s"), ui->username);
     // TODO: Use ellipsization and max_width when using fullname
     gtk_label_set_text (GTK_LABEL(ui->label1), text);
     
@@ -394,10 +423,10 @@ void static flickr_entry_changed(GtkEntry *entry, gpointer data)
   if( ui->flickr_api != NULL)
   {
     ui->flickr_api->needsReauthentication=TRUE;
-    if (ui->user_token)
+    if (ui->username)
     {
-      g_free(ui->user_token);
-      ui->user_token = NULL;
+      g_free(ui->username);
+      ui->username = NULL;
     }
     set_status(ui,_("not authenticated"), "#e07f7f");
     gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
@@ -505,12 +534,12 @@ void static px500_refresh_clicked(GtkButton *button,gpointer data)
 void static px500_button1_clicked(GtkButton *button,gpointer data)
 {
   dt_storage_px500_gui_data_t * ui=(dt_storage_px500_gui_data_t *)data;
-  if (ui->user_token != NULL)
+  if (ui->username != NULL)
   {
     ui->px500_api->needsReauthentication = TRUE;
     set_logged(ui, FALSE);
-    g_free(ui->user_token);
-    ui->user_token = NULL;
+    g_free(ui->username);
+    ui->username = NULL;
     return;
   }
    
@@ -657,7 +686,7 @@ gui_init (dt_imageio_module_storage_t *self)
   // If username and password is stored, let's populate the combo
   if( _username && _password )
   {
-    ui->user_token = _password;
+    ui->username = _password;
     refresh_albums(ui);
   }
   */
