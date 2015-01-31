@@ -65,7 +65,7 @@ typedef struct dt_storage_px500_gui_data_t
 
   GtkLabel *label1,*label2,*label3, *label4,*label5,*label6,*label7,*labelPerms;    // username, password, albums, status, albumtitle, albumsummary, albumrights
   GtkEntry *entry2,*entry3,*entry4;                             // username, password, albumtitle,albumsummary
-  GtkComboBoxText *comboBox1;                                               // album box
+  GtkComboBox *comboBox_album;                                               // album box
   GtkCheckButton *checkButton2;                                         // export tags
   GtkDarktableButton *dtbutton1;                                        // refresh albums
   GtkButton *button;                                                    // login button. These buttons call the same functions
@@ -93,6 +93,18 @@ typedef struct dt_storage_px500_params_t
   gboolean family_perm;
 } dt_storage_px500_params_t;
 
+typedef enum ComboAlbumModel
+{
+  COMBO_ALBUM_MODEL_NAME_COL = 0,
+  COMBO_ALBUM_MODEL_ID_COL,
+  COMBO_ALBUM_MODEL_NB_COL
+} ComboAlbumModel;
+
+typedef struct Collection
+{
+  gchar *id;
+  gchar *name;
+} Collection;
 
 void static set_logged(dt_storage_px500_gui_data_t *ui, gboolean logged);
 
@@ -135,11 +147,11 @@ static int _px500_parse_userinfo(dt_oauth_ctx_t* ctx, long int code, const char*
   GError *error;
   JsonParser *json_parser = json_parser_new();
   json_parser_load_from_data(json_parser, reply, strlen(reply), &error);
+  /* TODO: catch any error here */
   JsonNode *root = json_parser_get_root(json_parser);
   JsonObject* rootdict = json_node_get_object(root);
   JsonObject* userdict = json_object_get_object_member(rootdict, "user");
   const char* user_info = json_object_get_string_member(userdict, "email");
-  printf("user : %s\n", user_info);
   ui->username = g_strdup(user_info);
   
   g_object_unref(json_parser);
@@ -184,11 +196,9 @@ static dt_oauth_ctx_t *_px500_api_authenticate(dt_storage_px500_gui_data_t *ui)
 
   if (access_token == NULL || access_token_secret == NULL || username == NULL || ctx->needsReauthentication == TRUE)
   {
-    //gchar *username;
 
-    //get text from entries
-    //username = g_strdup("jcsogo@gmail.com");
-
+    /* oob == Out Of Band (http://tools.ietf.org/html/rfc5849#section-2.1)
+     * trying to use here a URL will fail, despite what the 500px API documentation says */
     const char* parms[] = {
        "oauth_callback", "oob",
        NULL };
@@ -402,7 +412,7 @@ void static set_logged(dt_storage_px500_gui_data_t *ui, gboolean logged)
   {
     gtk_label_set_text (GTK_LABEL(ui->label1), _("not logged in"));
     gtk_button_set_label (GTK_BUTTON(ui->button), _("login"));
-    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox_album ), FALSE);
   }
   else
   {
@@ -429,7 +439,7 @@ void static flickr_entry_changed(GtkEntry *entry, gpointer data)
       ui->username = NULL;
     }
     set_status(ui,_("not authenticated"), "#e07f7f");
-    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ) ,FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox_album ) ,FALSE);
   }
 }
 */
@@ -442,72 +452,132 @@ px500_photoset static **_px500_api_photosets( _px500_api_context_t *ctx, const c
 
   return photoset;
 }
+#endif
 
+Collection *collection_init()
+{
+  return (Collection *)g_malloc0(sizeof(Collection));
+}
+
+void collection_destroy(Collection *album)
+{
+  if(album == NULL) return;
+  g_free(album->id);
+  g_free(album->name);
+  g_free(album);
+}
+
+static int _px500_parse_albumlist(dt_oauth_ctx_t* ctx, long int code, const char* reply, gpointer data)
+{
+  GList *albumList = (GList *) data;
+
+  GError *error;
+  JsonParser *json_parser = json_parser_new();
+  json_parser_load_from_data(json_parser, reply, strlen(reply), &error);
+  /* TODO: catch any error here */
+  JsonNode *root = json_parser_get_root(json_parser);
+  JsonObject* rootdict = json_node_get_object(root);
+  JsonArray* jsalbums = json_object_get_array_member(rootdict, "collections");
+
+  guint i;
+  for(i = 0; i < json_array_get_length(jsalbums); i++)
+  {
+    JsonObject *obj = json_array_get_object_element(jsalbums, i);
+    if(obj == NULL) continue;
+
+    Collection *album = collection_init();
+    if(album == NULL) goto error;
+
+    JsonObject *jsid = json_object_get_object_member(obj, "id");
+    JsonObject *jstitle = json_object_get_object_member(obj, "title");
+
+    const char *id = json_object_get_string_member(jsid, "$t");
+    const char *name = json_object_get_string_member(jstitle, "$t");
+    if(id == NULL || name == NULL)
+    {
+      collection_destroy(album);
+      goto error;
+    }
+    album->id = g_strdup(id);
+    album->name = g_strdup(name);
+    album_list = g_list_append(album_list, album);
+  }
+  return album_list;
+
+  
+
+
+
+
+}
 
 /** Refresh albums */
 void static refresh_albums(dt_storage_px500_gui_data_t *ui)
 {
-  int i;
-  gtk_widget_set_sensitive( GTK_WIDGET(ui->comboBox1), FALSE);
 
-  if (ui->px500_api->fc == NULL || ui->px500_api->needsReauthentication == TRUE)
+  gboolean getlistok;
+  GList *albumList = NULL; // Get here the albums list
+  
+  int rc;
+  _px500_api_context_t *ctx = ui->px500_api;
+  rc = dt_oauth_get(ctx->fc, "collections", NULL, (dt_oauth_reply_callback_t) _px500_parse_albumlist, albumList);
+
+
+  if (rc != 0)
   {
-    ui->px500_api->fc = _px500_api_authenticate(ui);
-    if (ui->px500_api->fc == NULL)
-    {
-      set_logged(ui, FALSE);
-      gtk_widget_set_sensitive(GTK_WIDGET( ui->comboBox1 ), FALSE);
-      return;
-    }
+    dt_control_log(_("unable to retrieve album list"));
+    goto cleanup;
   }
 
-  // First clear the model of data except first item (Create new album)
-  GtkTreeModel *model=gtk_combo_box_get_model(ui->comboBox1);
-  gtk_list_store_clear (GTK_LIST_STORE(model));
-
-  ui->albums = _px500_api_photosets(ui->px500_api, NULL);
-  if( ui->albums )
+  GtkListStore *model_album = GTK_LIST_STORE(gtk_combo_box_get_model(ui->comboBox_album));
+  GtkTreeIter iter;
+  gtk_list_store_clear(model_album);
+  gtk_list_store_append(model_album, &iter);
+  gtk_list_store_set(model_album, &iter, COMBO_ALBUM_MODEL_NAME_COL, _("create new album"),
+                     COMBO_ALBUM_MODEL_ID_COL, NULL, -1);
+  if(albumList != NULL)
   {
-
-    // Add standard action
-    gtk_combo_box_append_text( ui->comboBox1, _("without album") );
-    gtk_combo_box_append_text( ui->comboBox1, _("create new album") );
-    gtk_combo_box_append_text( ui->comboBox1, "" );// Separator
-
-    // Then add albums from list...
-    for(i=0; ui->albums[i]; i++)
-    {
-      char data[512]= {0};
-      sprintf(data,"%s (%i)", ui->albums[i]->title, ui->albums[i]->photos_count);
-      gtk_combo_box_append_text( ui->comboBox1, g_strdup(data));
-    }
-    gtk_combo_box_set_active( ui->comboBox1, 3);
-    gtk_widget_hide( GTK_WIDGET(ui->hbox1) ); // Hide create album box...
+    gtk_list_store_append(model_album, &iter);
+    gtk_list_store_set(model_album, &iter, COMBO_ALBUM_MODEL_NAME_COL, "", COMBO_ALBUM_MODEL_ID_COL, NULL,
+                       -1); // separator
   }
+  g_list_foreach(albumList, (GFunc)ui_refresh_albums_fill, model_album);
+
+  if(albumList != NULL) gtk_combo_box_set_active(ui->comboBox_album, 2);
+  // FIXME: get the albumid and set it in the PicasaCtx
   else
-  {
-    // Failed to parse feed of album...
-    // Lets notify somehow...
-    gtk_combo_box_set_active( ui->comboBox1, 0);
-  }
-  gtk_widget_set_sensitive( GTK_WIDGET(ui->comboBox1), TRUE);
+    gtk_combo_box_set_active(ui->comboBox_album, 0);
 
+  gtk_widget_show_all(GTK_WIDGET(ui->comboBox_album));
+  g_list_free_full(albumList, (GDestroyNotify)picasa_album_destroy);
+
+cleanup:
+  return;
 }
 
-
-void static px500_album_changed(GtkComboBox *cb,gpointer data)
+static void ui_combo_album_changed(GtkComboBox *combo, gpointer data)
 {
-  dt_storage_px500_gui_data_t * ui=(dt_storage_px500_gui_data_t *)data;
-  gchar *value=gtk_combo_box_get_active_text(ui->comboBox1);
-  if( value!=NULL && strcmp( value, _("create new album") ) == 0 )
+  dt_storage_picasa_gui_data_t *ui = (dt_storage_picasa_gui_data_t *)data;
+
+  GtkTreeIter iter;
+  gchar *albumid = NULL;
+  if(gtk_combo_box_get_active_iter(combo, &iter))
   {
-    gtk_widget_set_no_show_all(GTK_WIDGET(ui->hbox1), FALSE);
-    gtk_widget_show_all(GTK_WIDGET(ui->hbox1));
+    GtkTreeModel *model = gtk_combo_box_get_model(combo);
+    gtk_tree_model_get(model, &iter, COMBO_ALBUM_MODEL_ID_COL, &albumid, -1); // get the album id
+  }
+
+  if(albumid == NULL)
+  {
+    gtk_widget_set_no_show_all(GTK_WIDGET(ui->hbox_album), FALSE);
+    gtk_widget_show_all(GTK_WIDGET(ui->hbox_album));
   }
   else
-    gtk_widget_hide(GTK_WIDGET(ui->hbox1));
+  {
+    gtk_widget_set_no_show_all(GTK_WIDGET(ui->hbox_album), TRUE);
+    gtk_widget_hide(GTK_WIDGET(ui->hbox_album));
+  }
 }
-#endif
 
 gboolean static combobox_separator(GtkTreeModel *model,GtkTreeIter *iter,gpointer data)
 {
@@ -614,10 +684,20 @@ gui_init (dt_imageio_module_storage_t *self)
   gtk_entry_set_text( ui->entry3, _("my new photoset") );
   gtk_entry_set_text( ui->entry4, _("exported from darktable") );
 
+  //// album list ////
   GtkWidget *albumlist=gtk_box_new(GTK_ORIENTATION_HORIZONTAL,0);
-  ui->comboBox1=GTK_COMBO_BOX_TEXT( gtk_combo_box_text_new()); // Available albums
+  GtkListStore *model_album
+      = gtk_list_store_new(COMBO_ALBUM_MODEL_NB_COL, G_TYPE_STRING, G_TYPE_STRING); // name, id
+  ui->comboBox_album = GTK_COMBO_BOX(gtk_combo_box_new_with_model(GTK_TREE_MODEL(model_album)));
+  GtkCellRenderer *p_cell = gtk_cell_renderer_text_new();
+  g_object_set(G_OBJECT(p_cell), "ellipsize", PANGO_ELLIPSIZE_MIDDLE, "ellipsize-set", TRUE, "width-chars",
+               35, NULL);
+  gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(ui->comboBox_album), p_cell, FALSE);
+  gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(ui->comboBox_album), p_cell, "text", 0, NULL);
 
-  dt_ellipsize_combo(GTK_COMBO_BOX(ui->comboBox1));
+  gtk_widget_set_sensitive(GTK_WIDGET(ui->comboBox_album), FALSE);
+  gtk_combo_box_set_row_separator_func(ui->comboBox_album, combobox_separator, ui->comboBox_album, NULL);
+  gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->comboBox_album), TRUE, TRUE, 0);
 
   ui->dtbutton1 = DTGTK_BUTTON( dtgtk_button_new(dtgtk_cairo_paint_refresh,0) );
   g_object_set(G_OBJECT(ui->dtbutton1), "tooltip-text", _("refresh album list"), (char *)NULL);
@@ -625,9 +705,7 @@ gui_init (dt_imageio_module_storage_t *self)
   ui->button = GTK_BUTTON(gtk_button_new_with_label(_("login")));
   g_object_set(G_OBJECT(ui->button), "tooltip-text", _("px500 login"), (char *)NULL);
 
-  gtk_widget_set_sensitive( GTK_WIDGET(ui->comboBox1), FALSE);
-  gtk_combo_box_set_row_separator_func(GTK_COMBO_BOX(ui->comboBox1),combobox_separator,ui->comboBox1,NULL);
-  gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->comboBox1), TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->comboBox_album), TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(albumlist), GTK_WIDGET(ui->dtbutton1), FALSE, FALSE, 0);
 
   ui->checkButton2 = GTK_CHECK_BUTTON( gtk_check_button_new_with_label(_("export tags")) );
@@ -678,7 +756,7 @@ gui_init (dt_imageio_module_storage_t *self)
 //  g_signal_connect(G_OBJECT(ui->dtbutton1), "clicked", G_CALLBACK(px500_refresh_clicked), (gpointer)ui);
   g_signal_connect(G_OBJECT(ui->button), "clicked", G_CALLBACK(px500_button1_clicked), (gpointer)ui);
 //  g_signal_connect(G_OBJECT(ui->entry1), "changed", G_CALLBACK(px500_entry_changed), (gpointer)ui);
-//  g_signal_connect(G_OBJECT(ui->comboBox1), "changed", G_CALLBACK(px500_album_changed), (gpointer)ui);
+//  g_signal_connect(G_OBJECT(ui->comboBox_album), "changed", G_CALLBACK(ui_combo_album_changed), (gpointer)ui);
 
   /**
   dont' populate the combo on startup, save 3 second
@@ -693,7 +771,7 @@ gui_init (dt_imageio_module_storage_t *self)
 
 //  if( _username )
 //    g_free (_username);
-  gtk_combo_box_set_active(GTK_COMBO_BOX(ui->comboBox1), FALSE);
+  gtk_combo_box_set_active(GTK_COMBO_BOX(ui->comboBox_album), FALSE);
 }
 
 void
@@ -879,7 +957,7 @@ get_params(dt_imageio_module_storage_t *self, int *size)
   {
     // We are authenticated and off to actually export images..
     d->px500_api = ui->px500_api;
-    int index = gtk_combo_box_get_active(GTK_COMBO_BOX(ui->comboBox1));
+    int index = gtk_combo_box_get_active(GTK_COMBO_BOX(ui->comboBox_album));
     if( index >= 0 )
     {
       switch(index)

@@ -671,7 +671,7 @@ const char *dt_oauth_get_authorize_uri(dt_oauth_ctx_t *ctx)
   g_return_val_if_fail(ctx != NULL, NULL);
 
   char *url = g_strconcat(ctx->endpoint, "oauth/authorize", NULL);
-  url = dt_util_dstrcat(url, "?oauth_token=%s&oauth_callback=https://www.500px.com/", ctx->token_key);
+  url = dt_util_dstrcat(url, "?oauth_token=%s", ctx->token_key);
 
   return url;
 }
